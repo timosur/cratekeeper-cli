@@ -14,6 +14,11 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
 ]
 
+[project.optional-dependencies]
+audio = [
+    "essentia-tensorflow>=2.1b6.dev1110; platform_system != 'Windows'",
+]
+
 [project.scripts]
 crate = "cratekeeper.cli:app"
 

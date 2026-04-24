@@ -28,8 +28,17 @@ os.environ.setdefault("NO_GCE_CHECK", "true")                # skip GCE metadata
 os.environ.setdefault("GCS_READ_CACHE_DISABLED", "true")     # no GCS network calls
 os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")             # silence absl INFO/WARNING
 
-# Directory for downloaded TF models
-MODELS_DIR = Path(os.environ.get("ESSENTIA_MODELS_DIR", "/app/models"))
+# Directory for downloaded TF models.
+# Inside Docker the image bakes models into /app/models; locally we cache in
+# the user's XDG cache dir so non-root users can write models on first run.
+def _default_models_dir() -> Path:
+    if Path("/.dockerenv").exists():
+        return Path("/app/models")
+    cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(cache_home) / "cratekeeper" / "models"
+
+
+MODELS_DIR = Path(os.environ.get("ESSENTIA_MODELS_DIR", str(_default_models_dir())))
 
 # Base URL for essentia model downloads
 _MODELS_BASE = "https://essentia.upf.edu/models"
@@ -157,10 +166,17 @@ def extract_features(file_path: str | Path, use_tf: bool = True) -> AudioFeature
     if use_tf:
         try:
             _extract_tf_features(file_path, features, es)
-        except (ImportError, OSError, Exception):
-            pass  # TF not available or models not found — skip silently
+        except Exception as exc:  # noqa: BLE001 — surface once so user can debug
+            global _tf_warned
+            if not _tf_warned:
+                import sys
+                print(f"[mood_analyzer] TF feature extraction unavailable: {exc}", file=sys.stderr)
+                _tf_warned = True
 
     return features
+
+
+_tf_warned = False
 
 
 def _extract_tf_features(file_path: str, features: AudioFeatures, es) -> None:
