@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: djlib
+      POSTGRES_USER: dj
+      POSTGRES_PASSWORD: dj
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dj -d djlib"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  crate:
+    build: ./cratekeeper-cli
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+      - ./cratekeeper-cli/cratekeeper:/app/cratekeeper
+      - ./spotify-mcp/spotify-config.json:/app/../spotify-mcp/spotify-config.json
+      - /Volumes/home/Music:/music:ro
+      - ~/Music/Library:/library
+    working_dir: /app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://dj:dj@db:5432/djlib
+
+volumes:
+  pgdata:
