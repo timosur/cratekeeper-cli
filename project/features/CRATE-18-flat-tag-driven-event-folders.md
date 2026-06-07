@@ -82,8 +82,80 @@ This feature changes `crate build-event` to produce a **flat folder** (all files
 
 ## Tech Design
 
-_To be filled by the Solution Architect agent._
+### A) Impact Map
+
+```
+Command:   revised `crate build-event <input_file> --output <dir>` (cli.py)
+Modules:   rewrite cratekeeper/event_builder.py:
+           - flat folder layout (no Genre/ subdirectory)
+           - _is_fully_tagged(track)     — plan JSON field gate
+           - _has_embedded_comment(path) — mutagen file read gate
+           - BuildEventResult dataclass  (5 counts + track lists)
+           - collision detection: first write wins → _untagged.txt
+Data model: no new fields — reuses energy, function, crowd, mood_tags, era
+External:  local filesystem + mutagen (already a dependency)
+Deps:      none new
+```
+
+This is a self-contained change to the **event-folder output stage**. It does not touch the master-library path (`build-library`) or any upstream pipeline command.
+
+### B) Command & Module Structure
+
+```
+crate build-event <input_file> --output <dir>  (cli.py)
+├── EventPlan.load(input_file)
+├── build_event_folder(plan.tracks, output_dir)   # event_builder.py (rewritten)
+│   ├── for each track (in order):
+│   │   ├── no local_path or file missing on disk  → missing list
+│   │   ├── not _is_fully_tagged(track)            → untagged list
+│   │   ├── not _has_embedded_comment(path)        → untagged list
+│   │   ├── Artist - Title.ext already claimed
+│   │   │   by a different source file             → untagged list (collision)
+│   │   ├── dest_path.exists()                     → already_existed count
+│   │   └── shutil.copy2 → dest_path              → copied count
+│   ├── write output_dir/_missing.txt  (if any missing)
+│   ├── write output_dir/_untagged.txt (if any untagged/collision)
+│   └── return BuildEventResult
+├── AC-7: zero eligible → warn + exit non-zero
+└── Rich summary table + warning line pointing at _untagged.txt
+```
+
+**Embedded-comment check** — `_has_embedded_comment(path)` reads the audio file with mutagen and looks for a non-empty comment field containing `energy:` (the marker written by `crate tag`):
+- MP3: `COMM::eng` ID3 frame
+- FLAC: vorbis `comment` tag
+- M4A: `©cmt` (`\xa9cmt`) atom
+
+This confirms `crate tag` ran on the file and that djay PRO quick filters will work. If the check fails (plan tags present but not yet embedded), the track joins the **untagged** list, directing the DJ to re-run `crate tag`.
+
+### C) Data Model Changes
+
+None. No new `Track` or `EventPlan` fields. Reuses existing `energy`, `function`, `crowd`, `mood_tags` (gate), `era` (informational), `local_path`, `artists`, `name`.
+
+### D) CLI Surface
+
+`crate build-event <input_file> --output/-o <dir>` — **signature unchanged**. Only the internal behaviour and output layout change:
+
+- Output: files land directly in `<dir>` as `Artist - Title.ext` — no `Genre/` subdirectory.
+- New report file: `<dir>/_untagged.txt` — tracks skipped for missing plan tags, unembedded file comment, or filename collision (first-writer-wins).
+- Existing report: `<dir>/_missing.txt` — unchanged (no `local_path` or file not on disk).
+- Summary table: **copied / already existed / missing local file / skipped (untagged or collision)**.
+- Exit: 0 on a successful build (even with some skips). Non-zero when zero tracks are eligible (AC-7) or on unrecoverable I/O error.
+
+**Resolved: Open Question — pipeline ordering.** `build-event` verifies both plan JSON fields *and* the embedded file comment. This means `crate apply-tags` → `crate tag` must precede `build-event`. The feature index pipeline order already reflects this.
+
+### E) Tech Decisions (why)
+
+- **Flat folder**: djay PRO quick-filter workflow needs a single folder the DJ can slice by energy/function/crowd/mood. Genre subfolders actively impede this — one track can match multiple tag dimensions that cut across genre.
+- **Dual gate (plan + embedded)**: checking only the plan would allow copying files that haven't had `crate tag` run yet, making djay filters silently fail. The mutagen read adds a tiny per-file cost (~1 ms) but gives a hard guarantee.
+- **Collision: first-writer-wins + `_untagged.txt`**: avoids silent data loss (overwriting into the same filename slot). The DJ can inspect the report and manually include the other version. Reusing `_untagged.txt` keeps the output directory uncluttered — both "not fully tagged" and "collision" mean "not eligible for this build."
+- **`BuildEventResult` dataclass**: mirrors `BuildLibraryResult` from CRATE-17, making the summary table straightforward and keeping `build_event_folder` a pure function.
+- **Idempotency (`dest_path.exists()` → skip)**: consistent with `build_library`. Re-running after tagging more tracks copies only newly-eligible files without disturbing those already present.
+- **mutagen** is already declared in `pyproject.toml` (used by `tag_writer.py`). No new dependency.
+
+### F) Dependencies
+
+None new. Reuses `mutagen` (already installed), `shutil`, `typer`, `rich`, and the existing `EventPlan`/`Track` models.
 
 ## Implementation Plan
 
-_See `project/plans/CRATE-18-plan.md` (created by the Solution Architect agent)._
+_See [CRATE-18-plan.md](../plans/CRATE-18-plan.md)._

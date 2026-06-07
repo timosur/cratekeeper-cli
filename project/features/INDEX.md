@@ -40,7 +40,7 @@ plus `review`, `create-playlists`, `sync-to-tidal`, `build-masters` (P1/P2).
 | CRATE-15 | Apply pre-classified tags from a JSON file | `crate apply-tags` | P1 | Done (shipped) | _existing code_ |
 | CRATE-16 | Write basic metadata into untagged audio files | `crate tag-untagged` | P2 | Done (shipped) | _existing code_ |
 | CRATE-17 | Review tracks before adding to master library | `crate review-library` (+ revises `build-library`) | P1 | Done (shipped) | [CRATE-17](CRATE-17-review-library-before-add.md) |
-| CRATE-18 | Flat, tag-driven event folders | `crate build-event` (revised) | P1 | Planned | [CRATE-18](CRATE-18-flat-tag-driven-event-folders.md) |
+| CRATE-18 | Flat, tag-driven event folders | `crate build-event` (revised) | P1 | Done (shipped) | [CRATE-18](CRATE-18-flat-tag-driven-event-folders.md) |
 
 > **CRATE-7 will not be built.** LLM tagging is intentionally an **agent-layer** concern, not a CLI command. The orchestrating agent builds a prompt from the classified + audio-analyzed plan, calls a sub-agent to produce a tags JSON, and `crate apply-tags` (CRATE-15) validates and writes the tags into the plan. A native `crate classify-tags` would only relocate the LLM call into the CLI — adding an `anthropic` SDK dependency and requiring `ANTHROPIC_API_KEY` in the CLI — without adding any capability. Revisit only if headless, agent-free scripting (cron/CI) of LLM tagging is ever required.
 

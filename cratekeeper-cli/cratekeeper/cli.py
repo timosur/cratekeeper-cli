@@ -705,28 +705,61 @@ def build_event_cmd(
     input_file: Path = typer.Argument(help="Path to classified JSON with local_path"),
     output: Path = typer.Option(..., "--output", "-o", help="Output directory for event folder (e.g., ~/Music/Events/Wedding/)"),
 ) -> None:
-    """Create an event folder with copies organized by Genre/."""
-    from cratekeeper.event_builder import build_event_folder
+    """Copy fully-tagged tracks flat into an event folder (no Genre/ subfolders)."""
+    from cratekeeper.event_builder import build_event_folder, _is_fully_tagged
 
     plan = EventPlan.load(input_file)
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks")
+
+    # AC-7: warn early if nothing will qualify (plan-field check only — fast pre-scan)
+    candidates = [t for t in plan.tracks if t.local_path]
+    fully_tagged_candidates = [t for t in candidates if _is_fully_tagged(t)]
+    if candidates and not fully_tagged_candidates:
+        untagged_count = len(candidates) - len(fully_tagged_candidates)
+        console.print("[red]No tracks qualify for the event folder — none have all required tags.[/red]")
+        console.print(
+            f"  [yellow]{untagged_count} track(s) are missing structured tags "
+            f"(energy, function, crowd, mood_tags). Run [bold]crate apply-tags[/bold] "
+            f"then [bold]crate tag[/bold] first.[/yellow]"
+        )
+        raise typer.Exit(1)
 
     def _progress(i, total, track, target_path):
         if i % 20 == 0 or i == total:
             console.print(f"  [{i}/{total}] {track.display_name()}")
 
-    created, skipped, missing = build_event_folder(plan.tracks, output, progress_callback=_progress)
+    result = build_event_folder(plan.tracks, output, progress_callback=_progress)
+
+    total_eligible = result.copied + result.already_existed
+    # AC-7: zero eligible after the full dual gate
+    if not total_eligible and (candidates or fully_tagged_candidates):
+        console.print("[red]No tracks were copied — none passed all eligibility gates.[/red]")
+        if result.untagged_tracks:
+            console.print(
+                f"  [yellow]{len(result.untagged_tracks)} track(s) were skipped for missing tags or "
+                f"unembedded comment. Run [bold]crate tag[/bold] on your local files, then retry.[/yellow]"
+            )
+        raise typer.Exit(1)
 
     table = Table(title="Event Folder Results")
     table.add_column("Metric", style="cyan")
-    table.add_column("Value", justify="right", style="green")
-    table.add_row("Files copied", str(created))
-    table.add_row("Already existed", str(skipped))
-    table.add_row("Missing (no local file)", str(len(missing)))
+    table.add_column("Value", justify="right")
+    table.add_row("Files copied", f"[green]{result.copied}[/green]")
+    table.add_row("Already existed", f"[dim]{result.already_existed}[/dim]")
+    table.add_row("Missing (no local file)", f"[yellow]{len(result.missing_tracks)}[/yellow]")
+    table.add_row("Skipped (untagged / collision)", f"[yellow]{len(result.untagged_tracks)}[/yellow]")
     console.print(table)
 
-    if missing:
-        console.print(f"[yellow]{len(missing)} tracks written to {output / '_missing.txt'}[/yellow]")
+    if result.missing_tracks:
+        console.print(f"[yellow]{len(result.missing_tracks)} track(s) listed in {output / '_missing.txt'}[/yellow]")
+    if result.untagged_tracks:
+        untagged_count = len(result.untagged_tracks)
+        collision_count = len(result.collision_tracks)
+        detail = f" ({collision_count} collision(s))" if collision_count else ""
+        console.print(
+            f"[yellow]{untagged_count} track(s){detail} listed in {output / '_untagged.txt'} — "
+            f"run [bold]crate tag[/bold] then retry.[/yellow]"
+        )
 
 
 @app.command(name="apply-tags")
