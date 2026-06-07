@@ -7,4 +7,3 @@
   - Maybe we can add some kind of of profile logic to the CLI?
 - Remove mcp-servers from project (I think they are not needed anymore)
 - Re-factor the code from the CLI
-- 
