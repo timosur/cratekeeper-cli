@@ -8,7 +8,7 @@ DJ library management toolkit — classify, analyze, tag, and organize music cra
 2. **Audio analysis** — BPM, key, energy, danceability, mood classifiers, arousal/valence via essentia + TensorFlow models
 3. **LLM-tagged metadata** — energy level, function tags (floorfiller, singalong, bridge…), crowd fit, mood tags — assigned by Claude/GPT using audio data
 4. **Tagged local files** — genre, BPM, key, and structured tags written into ID3/FLAC comment fields
-5. **Organized folder structure** — `Genre/Artist - Title.ext` ready for djay PRO or any DJ software
+5. **Organized output** — `Genre/Artist - Title.ext` master library, plus flat event folders filtered by tags in djay PRO
 6. **Multi-platform playlists** — sub-playlists on both Spotify and Tidal
 
 ## Project Structure
@@ -125,7 +125,7 @@ All commands use the `crate` CLI:
 | `crate analyze-mood <file>` | Extract audio features via essentia + TF models (**Docker**) |
 | `crate classify-tags <file>` | Assign structured tags via LLM (energy, function, crowd, mood) |
 | `crate build-library <file>` | Copy files into `Genre/` master library structure |
-| `crate build-event <file>` | Copy files into event-specific `Genre/` folder |
+| `crate build-event <file>` | Copy approved, fully-tagged files into a flat event folder (filter by tags in djay PRO) |
 | `crate tag <file>` | Write genre, BPM, key, and tags into audio file metadata |
 | `crate create-playlists <file>` | Create Spotify sub-playlists per genre bucket |
 | `crate build-masters <file>` | Add tracks to cross-event `[DJ] Genre` master playlists |
@@ -162,14 +162,15 @@ docker compose run --rm crate analyze-mood /data/wedding.classified.json
 # 8. Classify tags via LLM
 crate classify-tags data/wedding.classified.json
 
-# 9. Build master library
+# 9. Write metadata tags into audio files (required before building)
+crate tag data/wedding.classified.json
+
+# 10. Build master library
 crate build-library data/wedding.classified.json --target ~/Music/Library
 
-# 10. Build event folder
+# 11. Build event folder
 crate build-event data/wedding.classified.json --output ~/Music/Events/Wedding/
-
-# 11. Write metadata tags into audio files
-crate tag data/wedding.classified.json
+# → flat folder of tagged files; filter by energy/function/crowd/mood in djay PRO
 
 # 12. Create Spotify sub-playlists (optional)
 crate create-playlists data/wedding.classified.json --event "Wedding Smith" --date "2026-06-15"
@@ -296,7 +297,7 @@ docker compose run --rm crate analyze-mood /data/<file>.classified.json
 
 - **18 genre buckets** — specific enough for electronic sub-genres, broad enough to keep folders manageable
 - **Era as tag, not genre** — "Yeah!" by Usher belongs in Hip-Hop/R&B, not "2000s"
-- **Flat folder structure** (`Genre/`) — no mood sub-folders; tags in the comment field are searchable in djay PRO
+- **Genre folders for the library, flat folders for events** — the master library uses `Genre/` for browsing/archival; event folders are flat and sliced live by tag-based quick filters in djay PRO
 - **LLM for semantic tags** — audio analysis provides objective data, the LLM interprets it contextually (a "sad" ballad vs. a "sad" techno track serve different functions)
 - **Batch processing** — LLM classifies 15 tracks at a time for efficiency
 - **Docker for essentia only** — essentia + TF require Linux x86_64; everything else runs natively on macOS

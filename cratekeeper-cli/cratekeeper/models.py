@@ -32,6 +32,9 @@ class Track:
     crowd: list[str] = field(default_factory=list)  # mixed-age, older, younger, family
     mood_tags: list[str] = field(default_factory=list)  # feelgood, emotional, euphoric, nostalgic
 
+    # --- Library approval ---
+    library_approval: str = "undecided"  # undecided | approved | rejected
+
     # --- Audio analysis fields (from essentia) ---
     bpm: float | None = None
     key: str | None = None  # e.g. "C major", "A minor"

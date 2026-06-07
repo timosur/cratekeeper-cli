@@ -471,20 +471,26 @@ def match(
 @app.command(name="analyze-mood")
 def analyze_mood(
     input_file: Path = typer.Argument(help="Path to classified JSON (tracks must have local_path set)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Re-analyze tracks that already have audio features"),
 ) -> None:
     """Analyze audio features and assign mood to each locally matched track.
 
+    Already-analyzed tracks are skipped unless --force is given.
     Requires essentia — run via Docker if not installed locally.
     """
-    from cratekeeper.mood_analyzer import analyze_tracks
+    from cratekeeper.mood_analyzer import _is_analyzed, analyze_tracks
 
     plan = EventPlan.load(input_file)
     with_path = sum(1 for t in plan.tracks if t.local_path)
+    already = sum(1 for t in plan.tracks if t.local_path and _is_analyzed(t))
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{with_path}[/cyan] have local files")
 
     if not with_path:
         console.print("[red]No tracks have local_path set. Run 'dj match' first.[/red]")
         raise typer.Exit(1)
+
+    if already and not force:
+        console.print(f"Skipping [yellow]{already}[/yellow] already-analyzed tracks (use --force to re-analyze)")
 
     console.print("Analyzing audio features with essentia...")
 
@@ -501,7 +507,7 @@ def analyze_mood(
                 parts.append(f"energy={track.energy}")
             console.print(f"  [{i}/{total}] {track.display_name()} → [cyan]{', '.join(parts)}[/cyan]")
 
-    analyzed = analyze_tracks(plan.tracks, progress_callback=_progress)
+    analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=force)
     console.print(f"\nAnalyzed [green]{analyzed}[/green] of {with_path} tracks")
 
     # Energy summary
@@ -522,35 +528,172 @@ def analyze_mood(
     console.print(f"Saved to [green]{input_file}[/green]")
 
 
+# ---------------------------------------------------------------------------
+# review-library helpers
+# ---------------------------------------------------------------------------
+
+def _print_review_summary(candidates: list) -> None:
+    """Print approve / reject / undecided counts for the review-library summary."""
+    approved = sum(1 for t in candidates if t.library_approval == "approved")
+    rejected = sum(1 for t in candidates if t.library_approval == "rejected")
+    undecided = sum(1 for t in candidates if t.library_approval == "undecided")
+    table = Table(title="Review Summary")
+    table.add_column("Decision", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("Approved", f"[green]{approved}[/green]")
+    table.add_row("Rejected", f"[red]{rejected}[/red]")
+    table.add_row("Remaining undecided", f"[yellow]{undecided}[/yellow]")
+    console.print(table)
+
+
+@app.command(name="review-library")
+def review_library_cmd(
+    input_file: Path = typer.Argument(help="Path to classified JSON plan"),
+) -> None:
+    """Interactively approve or reject candidate tracks for the master library."""
+    import sys
+    from rich.panel import Panel
+    from cratekeeper.review_library import candidate_tracks, undecided_candidates
+
+    # EC-5: refuse to run when stdin is not an interactive terminal.
+    if not sys.stdin.isatty():
+        console.print("[red]review-library requires an interactive terminal. Stdin is not a TTY.[/red]")
+        raise typer.Exit(1)
+
+    plan = EventPlan.load(input_file)
+
+    candidates = candidate_tracks(plan.tracks)
+    if not candidates:
+        # EC-1
+        console.print("[yellow]Nothing to review — no tracks have both a local file and a bucket. Run match/classify first.[/yellow]")
+        return
+
+    pending = undecided_candidates(plan.tracks)
+    if not pending:
+        # EC-2
+        console.print("[green]All candidates already reviewed.[/green]")
+        _print_review_summary(candidates)
+        return
+
+    console.print(
+        f"[cyan]{len(candidates)}[/cyan] candidate(s) total, "
+        f"[yellow]{len(pending)}[/yellow] undecided. Press [bold]a[/bold]=approve  "
+        f"[bold]r[/bold]=reject  [bold]s[/bold]=skip  [bold]q[/bold]=quit."
+    )
+
+    quit_requested = False
+    for idx, track in enumerate(pending, 1):
+        info_lines = [f"[bold]{track.display_name()}[/bold]"]
+        info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan]   Year: {track.release_year or '?'}")
+        if track.bpm or track.key:
+            info_lines.append(f"BPM: {track.bpm or '?'}   Key: {track.key or '?'}")
+        if track.energy or track.function or track.crowd:
+            info_lines.append(
+                f"Energy: {track.energy or '?'}   "
+                f"Function: {', '.join(track.function) or '?'}   "
+                f"Crowd: {', '.join(track.crowd) or '?'}"
+            )
+        if track.mood_tags:
+            info_lines.append(f"Mood: {', '.join(track.mood_tags)}")
+        console.print(Panel("\n".join(info_lines), title=f"[{idx}/{len(pending)}]"))
+
+        while True:
+            try:
+                raw = input("  a=approve  r=reject  s=skip  q=quit > ").strip().lower()
+            except EOFError:
+                # EC-5: piped stdin exhausted mid-loop
+                console.print("\n[red]Stdin closed unexpectedly. Saving progress and exiting.[/red]")
+                plan.save(input_file)
+                raise typer.Exit(1)
+
+            if not raw:
+                continue
+            key = raw[0]
+            if key == "a":
+                track.library_approval = "approved"
+                console.print("  [green]Approved[/green]")
+                break
+            elif key == "r":
+                track.library_approval = "rejected"
+                console.print("  [red]Rejected[/red]")
+                break
+            elif key == "s":
+                # library_approval stays "undecided" — will reappear next run (AC-4)
+                console.print("  [dim]Skipped (will reappear next run)[/dim]")
+                break
+            elif key == "q":
+                console.print("  [yellow]Quitting and saving...[/yellow]")
+                quit_requested = True
+                break
+            else:
+                # EC-4: invalid key → re-prompt
+                console.print("  [yellow]Invalid key — press a, r, s, or q[/yellow]")
+
+        if quit_requested:
+            break
+
+    plan.save(input_file)
+    console.print(f"Saved to [green]{input_file}[/green]")
+    _print_review_summary(candidates)
+
+
 @app.command(name="build-library")
 def build_library_cmd(
     input_file: Path = typer.Argument(help="Path to classified JSON with local_path"),
     target: Path = typer.Option(Path.home() / "Music" / "Library", "--target", "-t", help="Target directory for the master library"),
 ) -> None:
-    """Copy matched local files into a Genre/ folder structure."""
-    from cratekeeper.library_builder import build_library
+    """Copy approved, fully-tagged matched files into a Genre/ folder structure."""
+    from cratekeeper.library_builder import build_library, is_fully_tagged
 
     plan = EventPlan.load(input_file)
-    candidates = sum(1 for t in plan.tracks if t.local_path)
-    with_bucket = sum(1 for t in plan.tracks if t.local_path and t.bucket)
-    console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{candidates}[/cyan] with local files, [cyan]{with_bucket}[/cyan] with bucket")
 
-    if with_bucket == 0 and candidates > 0:
-        console.print("[red]No tracks have a bucket set. Run 'dj classify' first.[/red]")
+    candidates = [t for t in plan.tracks if t.local_path and t.bucket]
+    approved_tagged = [t for t in candidates if t.library_approval == "approved" and is_fully_tagged(t)]
+
+    console.print(
+        f"Loaded [green]{len(plan.tracks)}[/green] tracks, "
+        f"[cyan]{len(candidates)}[/cyan] candidates, "
+        f"[green]{len(approved_tagged)}[/green] approved+tagged"
+    )
+
+    # AC-6: candidates exist but none qualify → warn and exit non-zero without copying.
+    if candidates and not approved_tagged:
+        undecided_count = sum(1 for t in candidates if t.library_approval == "undecided")
+        rejected_count = sum(1 for t in candidates if t.library_approval == "rejected")
+        untagged_count = sum(
+            1 for t in candidates
+            if t.library_approval == "approved" and not is_fully_tagged(t)
+        )
+        console.print("[red]No tracks qualify for the master library.[/red]")
+        if undecided_count:
+            console.print(
+                f"  [yellow]{undecided_count} track(s) are undecided — "
+                f"run [bold]crate review-library {input_file}[/bold] first.[/yellow]"
+            )
+        if untagged_count:
+            console.print(
+                f"  [yellow]{untagged_count} track(s) are approved but missing structured tags — "
+                f"run [bold]crate apply-tags[/bold] then [bold]crate tag[/bold].[/yellow]"
+            )
+        if rejected_count:
+            console.print(f"  [dim]{rejected_count} track(s) were rejected.[/dim]")
         raise typer.Exit(1)
 
     def _progress(i, total, track, dest_path):
         if i % 20 == 0 or i == total:
             console.print(f"  [{i}/{total}] {track.display_name()}")
 
-    copied, skipped, missing = build_library(plan.tracks, target, progress_callback=_progress)
+    result = build_library(plan.tracks, target, progress_callback=_progress)
 
     table = Table(title="Library Build Results")
     table.add_column("Metric", style="cyan")
-    table.add_column("Value", justify="right", style="green")
-    table.add_row("Copied", str(copied))
-    table.add_row("Already existed", str(skipped))
-    table.add_row("Missing (no local file)", str(len(missing)))
+    table.add_column("Value", justify="right")
+    table.add_row("Copied", f"[green]{result.copied}[/green]")
+    table.add_row("Already existed", f"[dim]{result.already_existed}[/dim]")
+    table.add_row("Missing (no local file)", f"[yellow]{len(result.missing)}[/yellow]")
+    table.add_row("Rejected", f"[dim]{result.rejected}[/dim]")
+    table.add_row("Undecided / un-reviewed", f"[yellow]{result.undecided}[/yellow]")
+    table.add_row("Excluded (missing tags)", f"[yellow]{result.missing_tags}[/yellow]")
     console.print(table)
 
     plan.save(input_file)

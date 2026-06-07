@@ -99,7 +99,7 @@ def _ensure_model(name: str) -> Path:
     return local_path
 
 
-def extract_features(file_path: str | Path, use_tf: bool = True) -> AudioFeatures:
+def extract_features(file_path: str | Path, use_tf: bool = True, require_tf: bool = False) -> AudioFeatures:
     """Extract audio features from a local audio file using essentia.
 
     Args:
@@ -172,6 +172,8 @@ def extract_features(file_path: str | Path, use_tf: bool = True) -> AudioFeature
                 import sys
                 print(f"[mood_analyzer] TF feature extraction unavailable: {exc}", file=sys.stderr)
                 _tf_warned = True
+            if require_tf:
+                raise
 
     return features
 
@@ -200,6 +202,8 @@ def _extract_tf_features(file_path: str, features: AudioFeatures, es) -> None:
     # --- Discogs-EffNet embeddings (shared across multiple classifiers) ---
     embeddings = predictors["effnet"](audio_16k)
 
+    errors: list[str] = []
+
     # Mood classifiers (binary, probability of positive class)
     for mood_name in ["mood_happy", "mood_party", "mood_relaxed", "mood_sad", "mood_aggressive"]:
         try:
@@ -207,23 +211,23 @@ def _extract_tf_features(file_path: str, features: AudioFeatures, es) -> None:
             # Average across time, take positive class probability (index 0)
             prob = float(np.mean(preds[:, 0]))
             setattr(features, mood_name, round(prob, 3))
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"{mood_name}: {exc}")
 
     # Voice/instrumental
     try:
         vi_preds = predictors["voice_instrumental"](embeddings)
         vi_avg = np.mean(vi_preds, axis=0)
         features.voice_instrumental = "voice" if vi_avg[0] > vi_avg[1] else "instrumental"
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"voice_instrumental: {exc}")
 
     # ML-based danceability
     try:
         dance_preds = predictors["danceability"](embeddings)
         features.danceability_ml = round(float(np.mean(dance_preds[:, 0])), 3)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"danceability: {exc}")
 
     # --- Arousal/Valence (using MusiCNN embeddings + DEAM model) ---
     try:
@@ -232,23 +236,50 @@ def _extract_tf_features(file_path: str, features: AudioFeatures, es) -> None:
         av_avg = np.mean(av_preds, axis=0)
         features.valence = round(float(av_avg[0]), 2)
         features.arousal = round(float(av_avg[1]), 2)
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(f"deam: {exc}")
+
+    # If every advanced feature failed, fail loudly so callers don't persist misleading zeros.
+    has_mood = any(getattr(features, name) > 0 for name in [
+        "mood_happy", "mood_party", "mood_relaxed", "mood_sad", "mood_aggressive",
+    ])
+    has_av = features.arousal != 0.0 or features.valence != 0.0
+    if not has_mood and not has_av:
+        detail = errors[0] if errors else "no advanced features produced"
+        raise RuntimeError(f"TF feature extraction produced no advanced outputs ({detail})")
 
 
 # Cached predictor instances — loaded once, reused across tracks
 _tf_predictors: dict | None = None
 
 
+def _ensure_tf_algorithms_available(es) -> None:
+    """Ensure this Essentia build exposes TensorFlow predictor algorithms."""
+    required = [
+        "TensorflowPredictEffnetDiscogs",
+        "TensorflowPredict2D",
+        "TensorflowPredictMusiCNN",
+    ]
+    missing = [name for name in required if not hasattr(es, name)]
+    if missing:
+        available = sorted(name for name in dir(es) if "Tensorflow" in name)
+        raise RuntimeError(
+            "Essentia TensorFlow predictors are not available in this environment. "
+            f"Missing: {', '.join(missing)}. "
+            f"Available TensorFlow algorithms: {available or ['none']}"
+        )
+
+
 def _get_tf_predictors(es) -> dict:
     """Load and cache all TF predictor instances."""
-    import contextlib
     import io
     import sys
 
     global _tf_predictors
     if _tf_predictors is not None:
         return _tf_predictors
+
+    _ensure_tf_algorithms_available(es)
 
     _tf_predictors = {}
 
@@ -270,6 +301,7 @@ def _get_tf_predictors(es) -> dict:
         model_path = _ensure_model(mood_name)
         _tf_predictors[mood_name] = es.TensorflowPredict2D(
             graphFilename=str(model_path),
+            input="model/Placeholder",
             output="model/Softmax",
         )
 
@@ -277,6 +309,7 @@ def _get_tf_predictors(es) -> dict:
     vi_model = _ensure_model("voice_instrumental")
     _tf_predictors["voice_instrumental"] = es.TensorflowPredict2D(
         graphFilename=str(vi_model),
+        input="model/Placeholder",
         output="model/Softmax",
     )
 
@@ -284,6 +317,7 @@ def _get_tf_predictors(es) -> dict:
     dance_model = _ensure_model("danceability")
     _tf_predictors["danceability"] = es.TensorflowPredict2D(
         graphFilename=str(dance_model),
+        input="model/Placeholder",
         output="model/Softmax",
     )
 
@@ -305,12 +339,17 @@ def _get_tf_predictors(es) -> dict:
     return _tf_predictors
 
 
-def analyze_track(file_path: str | Path, genre: str | None = None, use_tf: bool = True) -> AudioFeatures:
+def analyze_track(
+    file_path: str | Path,
+    genre: str | None = None,
+    use_tf: bool = True,
+    require_tf: bool = False,
+) -> AudioFeatures:
     """Extract all features for a single track.
 
     Returns AudioFeatures with all available data populated.
     """
-    return extract_features(file_path, use_tf=use_tf)
+    return extract_features(file_path, use_tf=use_tf, require_tf=require_tf)
 
 
 def _remap_path(file_path: str) -> str:
@@ -336,24 +375,47 @@ def _classify_energy(energy_value: float) -> str:
     return "high"
 
 
-def analyze_tracks(tracks: list, progress_callback=None, use_tf: bool = True) -> int:
+def _is_analyzed(track) -> bool:
+    """Return True if the track already has audio analysis results.
+
+    Uses the mood classifier scores as the marker, since those are the
+    primary advanced-analysis output (a non-empty audio_mood with any
+    positive score).
+    """
+    audio_mood = getattr(track, "audio_mood", None)
+    return bool(audio_mood) and any(v for v in audio_mood.values())
+
+
+def analyze_tracks(
+    tracks: list,
+    progress_callback=None,
+    use_tf: bool = True,
+    force: bool = False,
+) -> int:
     """Analyze audio features for tracks that have a local_path set.
 
     Mutates tracks: sets bpm, key, energy, audio_energy, danceability,
     audio_mood, arousal, valence, and legacy mood field.
-    Returns number of tracks analyzed.
+    Tracks that already have analysis results are skipped unless ``force``
+    is True. Returns number of tracks analyzed.
     """
     from cratekeeper.mood_config import classify_mood
 
     candidates = [
         t for t in tracks
         if t.local_path and Path(_remap_path(t.local_path)).exists()
+        and (force or not _is_analyzed(t))
     ]
     analyzed = 0
 
     for i, track in enumerate(candidates):
         try:
-            features = analyze_track(_remap_path(track.local_path), genre=track.bucket, use_tf=use_tf)
+            features = analyze_track(
+                _remap_path(track.local_path),
+                genre=track.bucket,
+                use_tf=use_tf,
+                require_tf=use_tf,
+            )
 
             # Populate Track fields from audio analysis
             track.bpm = features.bpm
