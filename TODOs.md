@@ -7,3 +7,5 @@
   - Maybe we can add some kind of of profile logic to the CLI?
 - Remove mcp-servers from project (I think they are not needed anymore)
 - Re-factor the code from the CLI
+- Maybe we can add some kind of orchestrator app in front of the CLI, which displays workflows through the CLI alongside profiles and maybe some kind of other things?
+  - Maybe that could just be part of the CLI itself? Like some kind of interactive wizard you can hook up, to start working with the CLI, so you do not need to remeber all the commands yourself, but also not wasting huge amount of tokens on it?
