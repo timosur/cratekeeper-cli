@@ -25,8 +25,9 @@ cratekeeper/
 │   │   ├── mood_config.py     # Genre-specific mood thresholds
 │   │   ├── llm_classifier.py  # LLM batch tag classification
 │   │   ├── tag_writer.py      # ID3/FLAC tag writing
-│   │   ├── event_builder.py   # Build event folder (Genre/)
+│   │   ├── event_builder.py   # Build flat event folder (tag-driven, no Genre/ subfolders)
 │   │   ├── library_builder.py # Build master library (Genre/)
+│   │   ├── review_library.py  # Library candidate selection helpers
 │   │   ├── matcher.py         # Match Spotify tracks to local files
 │   │   ├── spotify_client.py  # Spotify API wrapper
 │   │   ├── tidal_client.py    # Tidal sync
@@ -123,10 +124,11 @@ All commands use the `crate` CLI:
 | `crate match <file>` | Match Spotify tracks to local files (ISRC → exact → fuzzy) |
 | `crate match <file> --tidal-urls` | …and resolve Tidal URLs for missing tracks |
 | `crate analyze-mood <file>` | Extract audio features via essentia + TF models (**Docker**) |
-| `crate classify-tags <file>` | Assign structured tags via LLM (energy, function, crowd, mood) |
-| `crate build-library <file>` | Copy files into `Genre/` master library structure |
-| `crate build-event <file>` | Copy approved, fully-tagged files into a flat event folder (filter by tags in djay PRO) |
-| `crate tag <file>` | Write genre, BPM, key, and tags into audio file metadata |
+| `crate apply-tags <file> <tags.json>` | Apply LLM-classified tags (energy, function, crowd, mood) from a JSON file into the plan |
+| `crate tag <file>` | Write genre, BPM, key, and structured tags into audio file metadata |
+| `crate review-library <file>` | Interactively approve/reject matched tracks before they enter the master library |
+| `crate build-library <file>` | Copy **approved + fully-tagged** files into `Genre/` master library structure |
+| `crate build-event <file>` | Copy fully-tagged files into a **flat** event folder; both plan tags and embedded comment required (for djay PRO quick filters) |
 | `crate create-playlists <file>` | Create Spotify sub-playlists per genre bucket |
 | `crate build-masters <file>` | Add tracks to cross-event `[DJ] Genre` master playlists |
 | `crate sync-to-tidal <file>` | Sync classified playlists to Tidal via ISRC |
@@ -159,23 +161,29 @@ crate match data/wedding.classified.json
 # 7. Analyze audio features (Docker required)
 docker compose run --rm crate analyze-mood /data/wedding.classified.json
 
-# 8. Classify tags via LLM
-crate classify-tags data/wedding.classified.json
+# 8. Classify tags via LLM sub-agent → apply results
+# (Run the prepare-event skill Step 8: sub-agent produces tags JSON, then:)
+crate apply-tags data/wedding.classified.json data/wedding.tags.json
 
-# 9. Write metadata tags into audio files (required before building)
+# 9. Write metadata tags into audio files (required before building folders)
 crate tag data/wedding.classified.json
 
-# 10. Build master library
+# 10. Review tracks for master library (approve / reject interactively)
+crate review-library data/wedding.classified.json
+
+# 11. Build master library (approved + fully-tagged tracks only)
 crate build-library data/wedding.classified.json --target ~/Music/Library
+# → ~/Music/Library/Genre/Artist - Title.ext
 
-# 11. Build event folder
+# 12. Build event folder (flat, fully-tagged tracks only)
 crate build-event data/wedding.classified.json --output ~/Music/Events/Wedding/
-# → flat folder of tagged files; filter by energy/function/crowd/mood in djay PRO
+# → flat folder; filter by energy/function/crowd/mood in djay PRO
+# → _untagged.txt lists tracks that need crate tag re-run before they qualify
 
-# 12. Create Spotify sub-playlists (optional)
+# 13. Create Spotify sub-playlists (optional)
 crate create-playlists data/wedding.classified.json --event "Wedding Smith" --date "2026-06-15"
 
-# 13. Sync to Tidal (optional)
+# 14. Sync to Tidal (optional)
 crate sync-to-tidal data/wedding.classified.json
 ```
 

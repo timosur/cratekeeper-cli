@@ -6,7 +6,7 @@ argument-hint: 'Provide the Spotify playlist URL, event name, and event date'
 
 # Prepare Event
 
-Full pipeline from a Spotify wish playlist to a local event folder with files organized by Genre/, tagged with structured metadata and ready for DJing.
+Full pipeline from a Spotify wish playlist to a flat event folder with files tagged with structured metadata and ready for DJing with djay PRO quick filters.
 
 ## When to Use
 
@@ -211,25 +211,47 @@ Writes metadata into ID3/FLAC tags:
 - **Key** (TKEY / initialkey): musical key
 - **Comment** (COMM / comment): structured tags string
 
-**Important**: Tagging must happen before building library/event folders so that copies contain the tags.
+**Important**: Tagging must happen before building library/event folders so that copies carry the embedded comment. `build-event` will refuse to copy a file whose embedded comment is missing.
 
-### Step 10: Build Master Library
+### Step 10: Review Library Candidates
+
+```bash
+crate review-library data/<slug>.classified.json
+```
+
+Interactively approves or rejects each track that has a matched local file and a genre bucket. Press `a` = approve, `r` = reject, `s` = skip (decide later), `q` = quit and save. Progress is saved to the JSON on quit so the session is resumable.
+
+Only tracks marked **approved** here will be copied by `build-library`. Skipped/undecided tracks are excluded. **Wait for the user to finish reviewing before proceeding.**
+
+### Step 11: Build Master Library
 
 ```bash
 crate build-library data/<slug>.classified.json --target ~/Music/Library
 ```
 
-Copies matched files into `~/Music/Library/Genre/Artist - Title.ext`. Skips files without bucket. Updates `local_path` in the JSON.
+Copies files into `~/Music/Library/Genre/Artist - Title.ext`. Only tracks that are **approved** (via Step 10) **and** fully tagged (`energy`, `function`, `crowd`, `mood_tags` all set) are copied. Updates `local_path` in the JSON. If nothing qualifies, the command exits non-zero with an explanation — run Step 10 first.
 
-### Step 11: Build Event Folder
+Summary table reports: copied / already existed / missing / rejected / undecided / excluded (missing tags).
+
+### Step 12: Build Event Folder
 
 ```bash
 crate build-event data/<slug>.classified.json --output ~/Music/Events/<EventName>/
 ```
 
-Copies files into an event-specific folder with `Genre/` structure. Creates `_missing.txt` for unmatched tracks.
+Copies eligible tracks **flat** into the event directory — no Genre/ subfolders. Files land as `Artist - Title.ext` directly in `<EventName>/`, ready for djay PRO quick filters (energy, function, crowd, mood).
 
-### Step 12: Report to User
+Eligibility gates (both must pass):
+1. **Plan tags present**: `energy`, `function`, `crowd`, `mood_tags` all non-empty.
+2. **Embedded comment present** in the audio file (confirms `crate tag` ran — required for djay filters to work).
+
+Report files written to the output directory:
+- `_missing.txt` — tracks with no matched local file
+- `_untagged.txt` — tracks that failed the tag gate or caused a filename collision (first-writer-wins)
+
+If no tracks qualify, the command exits non-zero — run Steps 8, 9, and check `_untagged.txt`.
+
+### Step 13: Report to User
 
 Summarize:
 - Total tracks processed
@@ -250,6 +272,7 @@ crate match data/<slug>.classified.json --tidal-urls
 docker compose run --rm crate analyze-mood /data/<slug>.classified.json
 # classify tags via sub-agent + crate apply-tags (see step 8)
 crate tag data/<slug>.classified.json
+crate review-library data/<slug>.classified.json
 crate build-library data/<slug>.classified.json --target ~/Music/Library
 crate build-event data/<slug>.classified.json --output ~/Music/Events/<EventName>/
 ```
@@ -262,7 +285,10 @@ The scan step can be skipped if the NAS library hasn't changed.
 - [ ] Classification reviewed and confirmed by user before proceeding
 - [ ] Match rate is reasonable (>50% for a well-stocked library)
 - [ ] Audio analysis completed for all matched tracks
-- [ ] LLM tags assigned (energy, function, crowd, mood)
-- [ ] Files are real copies (not symlinks) in the library and event folders
-- [ ] Tags written successfully (genre, BPM, key, comment with structured tags)
-- [ ] Missing tracks list provided to user for manual download
+- [ ] LLM tags assigned (energy, function, crowd, mood) via sub-agent + `crate apply-tags`
+- [ ] Tags embedded into audio files via `crate tag` (required before library/event build)
+- [ ] Library candidates reviewed via `crate review-library` (approved tracks only enter the library)
+- [ ] `build-library` summary shows expected copied count; zero rejected/undecided is ideal
+- [ ] Event folder is flat (no Genre/ subfolders); files land directly in `<EventName>/`
+- [ ] `_untagged.txt` reviewed — any tracks listed need `crate tag` re-run before they qualify
+- [ ] Missing tracks list (`_missing.txt`) provided to user for manual download
