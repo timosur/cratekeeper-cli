@@ -1,3 +1,4 @@
 # AGENTS.md
 
 - For OpenSpec propose/apply/verify/archive workflows, use the local `openspec-git-discipline` skill to enforce proposal commits before apply and merge-before-archive discipline.
+- When working on OpenSpec changes (`/opsx-new`, `/opsx-continue`, `/opsx-apply`, etc.), follow ONLY the OpenSpec artifact workflow (openspec-new-change, openspec-continue-change, openspec-apply-change, etc.). Do NOT layer the superpowers brainstorming skill, writing-plans skill, or any other superpowers design/spec workflow on top. OpenSpec has its own proposal → design → specs → tasks pipeline that replaces those workflows. The grill-me skill may be used for clarifying questions if the OpenSpec schema rules require it, but its output feeds into OpenSpec artifacts -- not into a separate brainstorming spec document.
