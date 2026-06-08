@@ -24,6 +24,8 @@ context: |
   Non-goals: No GUI, no real-time playback, no music downloading,
   no multi-user/cloud sync, no mobile app.
 
+  *** Anytime you need to ask questions, use the ask questions tool. ***
+
 rules:
   proposal:
     - Must use grill-me skill
