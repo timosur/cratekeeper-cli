@@ -187,6 +187,37 @@ crate create-playlists data/wedding.classified.json --event "Wedding Smith" --da
 crate sync-to-tidal data/wedding.classified.json
 ```
 
+## Purchasing Missing Tracks
+
+After running `crate match`, any tracks not found in your local library are reported in `.missing.txt` and `.missing-isrcs.txt`. With the `--tidal-urls` flag, you also get `.missing-tidal.txt` with direct purchase links.
+
+To integrate purchased tracks back into the pipeline:
+
+```bash
+# 1. Review what's missing
+cat data/wedding.missing.txt
+
+# 2. Buy tracks from Tidal, Beatport, Bandcamp, etc.
+#    Download files to a staging directory
+
+# 3. Tag purchased files with metadata from the plan
+crate tag-untagged data/wedding.classified.json ~/Downloads/purchased/
+# Matches files to unmatched tracks by filename, writes title/artist/album/year/ISRC tags
+
+# 4. Move tagged files to your NAS library manually
+#    e.g., cp ~/Downloads/purchased/*.flac /Volumes/Music/New/
+
+# 5. Re-scan to pick up new files
+crate scan /Volumes/Music
+
+# 6. Re-match to verify purchased tracks are now found
+crate match data/wedding.classified.json --tidal-urls
+
+# 7. Continue with the rest of the pipeline (analyze-mood, tag, build-event, etc.)
+```
+
+**Note**: `crate tag-untagged` matches downloaded files to plan tracks by normalizing filenames against track titles. Most music stores name files close to the track title, so this works out of the box. If a file isn't matched, rename it closer to the expected track title and re-run.
+
 ## Genre Buckets (18)
 
 Tracks are classified into genre buckets in order of specificity (first match wins):

@@ -1,6 +1,5 @@
 - Add function for adding a non-whishlist normal playlist from spotify to master lib (but going through the whole cycle again)
-- What happens, if a track did not be found?
-  - I can buy it, but what then? Maybe add some instructions on that.
+- ~~What happens, if a track did not be found?~~ → Documented: see README "Purchasing Missing Tracks" section + prepare-event skill Step 6b
 - I would like to have a different libary for commercial gigs and one for my electronic dj sets. For that it could be, that the logic will be different on how to sort tracks and stuff. That we would need to figure out.
   - Also here I would want to add my whole libary
   - It needs to be rekordbox compatible, not djay Pro in that case
