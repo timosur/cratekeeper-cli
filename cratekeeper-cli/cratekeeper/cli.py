@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from cratekeeper.models import EventPlan
+from cratekeeper.models import EventPlan, LibraryImportPlan, Plan
 
 app = typer.Typer(help="Cratekeeper — DJ library management CLI")
 console = Console()
@@ -50,12 +50,39 @@ def fetch(
             genres.extend(artist_genres.get(aid, []))
         track.artist_genres = list(set(genres))
 
-    # Save
-    plan = EventPlan(
-        source_playlist_id=playlist_id,
-        source_playlist_name=playlist_name,
-        tracks=tracks,
-    )
+    # Determine plan type
+    import sys
+
+    plan: Plan
+    if sys.stdin.isatty():
+        from rich.prompt import Prompt
+
+        plan_choice = Prompt.ask(
+            "Is this for an event or a library import?",
+            choices=["event", "library"],
+            default="event",
+        )
+        if plan_choice == "library":
+            plan = LibraryImportPlan(
+                source_playlist_id=playlist_id,
+                source_playlist_name=playlist_name,
+                tracks=tracks,
+            )
+            console.print("[cyan]Creating library-import plan[/cyan]")
+        else:
+            plan = EventPlan(
+                source_playlist_id=playlist_id,
+                source_playlist_name=playlist_name,
+                tracks=tracks,
+            )
+            console.print("[cyan]Creating event plan[/cyan]")
+    else:
+        # Non-interactive: default to EventPlan
+        plan = EventPlan(
+            source_playlist_id=playlist_id,
+            source_playlist_name=playlist_name,
+            tracks=tracks,
+        )
 
     if output is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -75,7 +102,7 @@ def classify(
     """Classify tracks into genre buckets and print a summary."""
     from cratekeeper.classifier import classify_tracks, consolidate_small_buckets
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks from '{plan.source_playlist_name}'")
 
     if enrich:
@@ -125,7 +152,7 @@ def enrich(
     """Enrich tracks missing genre data via MusicBrainz ISRC lookup."""
     from cratekeeper.musicbrainz_client import enrich_tracks_genres
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     missing_genres = sum(1 for t in plan.tracks if not t.artist_genres and t.isrc)
     missing_year = sum(1 for t in plan.tracks if not t.release_year and t.isrc)
     candidates = sum(1 for t in plan.tracks if (not t.artist_genres or not t.release_year) and t.isrc)
@@ -158,7 +185,7 @@ def review(
     input_file: Path = typer.Argument(help="Path to classified JSON"),
 ) -> None:
     """Print tracks with low-confidence classification for manual review."""
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
 
     low_conf = [t for t in plan.tracks if t.confidence == "low"]
     med_conf = [t for t in plan.tracks if t.confidence == "medium"]
@@ -210,7 +237,10 @@ def create_playlists(
         get_spotify_client,
     )
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
+    if not isinstance(plan, EventPlan):
+        console.print("[red]create-playlists is not applicable to library imports.[/red]")
+        raise typer.Exit(1)
     plan.event_name = event
     plan.event_date = date
 
@@ -250,7 +280,7 @@ def build_masters(
         get_user_playlists,
     )
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     sp = get_spotify_client()
     buckets = plan.bucket_summary()
 
@@ -306,7 +336,10 @@ def sync_to_tidal(
         get_tidal_session,
     )
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
+    if not isinstance(plan, EventPlan):
+        console.print("[red]sync-to-tidal is not applicable to library imports.[/red]")
+        raise typer.Exit(1)
     session = get_tidal_session()
     buckets = plan.bucket_summary()
 
@@ -392,7 +425,7 @@ def match(
     """Match classified Spotify tracks to local audio files."""
     from cratekeeper.matcher import match_tracks
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
 
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, matching against PostgreSQL...")
 
@@ -480,7 +513,7 @@ def analyze_mood(
     """
     from cratekeeper.mood_analyzer import _is_analyzed, analyze_tracks
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     with_path = sum(1 for t in plan.tracks if t.local_path)
     already = sum(1 for t in plan.tracks if t.local_path and _is_analyzed(t))
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{with_path}[/cyan] have local files")
@@ -560,7 +593,7 @@ def review_library_cmd(
         console.print("[red]review-library requires an interactive terminal. Stdin is not a TTY.[/red]")
         raise typer.Exit(1)
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
 
     candidates = candidate_tracks(plan.tracks)
     if not candidates:
@@ -645,7 +678,7 @@ def build_library_cmd(
     """Copy approved, fully-tagged matched files into a Genre/ folder structure."""
     from cratekeeper.library_builder import build_library, is_fully_tagged
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
 
     candidates = [t for t in plan.tracks if t.local_path and t.bucket]
     approved_tagged = [t for t in candidates if t.library_approval == "approved" and is_fully_tagged(t)]
@@ -708,7 +741,10 @@ def build_event_cmd(
     """Copy fully-tagged tracks flat into an event folder (no Genre/ subfolders)."""
     from cratekeeper.event_builder import build_event_folder, _is_fully_tagged
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
+    if not isinstance(plan, EventPlan):
+        console.print("[red]build-event is not applicable to library imports. Use build-library instead.[/red]")
+        raise typer.Exit(1)
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks")
 
     # AC-7: warn early if nothing will qualify (plan-field check only — fast pre-scan)
@@ -779,7 +815,7 @@ def apply_tags(
         "uplifting", "dreamy", "funky", "groovy",
     }
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     tags_data = _json.loads(tags_file.read_text())
 
     if not isinstance(tags_data, list):
@@ -840,7 +876,7 @@ def tag(
     """Write genre, BPM, key, and structured tags into audio file ID3/FLAC tags."""
     from cratekeeper.tag_writer import tag_tracks
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     candidates = sum(1 for t in plan.tracks if t.local_path)
     console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{candidates}[/cyan] with local files")
 
@@ -876,7 +912,7 @@ def tag_untagged(
     import re
     from mutagen.mp4 import MP4
 
-    plan = EventPlan.load(input_file)
+    plan = Plan.load(input_file)
     unmatched = [t for t in plan.tracks if not t.local_path]
     console.print(
         f"Loaded [green]{len(plan.tracks)}[/green] tracks, "

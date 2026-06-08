@@ -97,16 +97,13 @@ class LocalLibrary:
 
 
 @dataclass
-class EventPlan:
-    """Full plan for an event — tracks, classification, created playlists."""
+class Plan:
+    """Base plan — shared fields and serialization for all plan types."""
 
     source_playlist_id: str
     source_playlist_name: str
     tracks: list[Track] = field(default_factory=list)
-    event_name: str | None = None
-    event_date: str | None = None
-    created_playlists: dict[str, str] = field(default_factory=dict)  # bucket -> playlist_id
-    tidal_playlists: dict[str, str] = field(default_factory=dict)  # bucket -> tidal_playlist_id
+    plan_type: str = "event"
 
     def save(self, path: Path) -> None:
         data = asdict(self)
@@ -114,10 +111,15 @@ class EventPlan:
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
     @classmethod
-    def load(cls, path: Path) -> EventPlan:
+    def load(cls, path: Path) -> Plan:
+        """Load a plan from JSON, dispatching on plan_type discriminator."""
         data = json.loads(path.read_text())
         tracks = [Track(**t) for t in data.pop("tracks", [])]
-        return cls(tracks=tracks, **data)
+        plan_type = data.pop("plan_type", "event")
+        if plan_type == "library-import":
+            return LibraryImportPlan(tracks=tracks, **data)
+        # Default: EventPlan (backward compatible for missing plan_type)
+        return EventPlan(tracks=tracks, **data)
 
     def bucket_summary(self) -> dict[str, list[Track]]:
         """Group tracks by bucket."""
@@ -126,3 +128,24 @@ class EventPlan:
             bucket = track.bucket or "Unclassified"
             buckets.setdefault(bucket, []).append(track)
         return dict(sorted(buckets.items(), key=lambda x: -len(x[1])))
+
+
+@dataclass
+class EventPlan(Plan):
+    """Plan for an event — adds event-specific fields."""
+
+    event_name: str | None = None
+    event_date: str | None = None
+    created_playlists: dict[str, str] = field(default_factory=dict)  # bucket -> playlist_id
+    tidal_playlists: dict[str, str] = field(default_factory=dict)  # bucket -> tidal_playlist_id
+
+    def __post_init__(self) -> None:
+        self.plan_type = "event"
+
+
+@dataclass
+class LibraryImportPlan(Plan):
+    """Plan for importing a curated playlist into the master library."""
+
+    def __post_init__(self) -> None:
+        self.plan_type = "library-import"
