@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from cratekeeper.library_builder import is_fully_tagged
 from cratekeeper.models import Track
 
 
@@ -13,3 +14,12 @@ def candidate_tracks(tracks: list[Track]) -> list[Track]:
 def undecided_candidates(tracks: list[Track]) -> list[Track]:
     """Return candidate tracks whose library_approval is still 'undecided'."""
     return [t for t in candidate_tracks(tracks) if t.library_approval == "undecided"]
+
+
+def is_admission_complete(track: Track, required_fields: list[str] | None = None) -> bool:
+    """Return True when the track satisfies the active profile's admission fields.
+
+    Delegates to the shared library admission gate so review and build agree on
+    what "fully tagged" means for the active profile.
+    """
+    return is_fully_tagged(track, required_fields)

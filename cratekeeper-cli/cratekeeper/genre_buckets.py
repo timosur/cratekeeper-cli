@@ -12,13 +12,22 @@ and stored as a comment tag.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class GenreBucket:
     name: str
     genre_tags: list[str]
+
+
+@dataclass
+class BucketPreset:
+    """A named, ordered set of genre buckets with its own fallback bucket."""
+
+    name: str
+    buckets: list[GenreBucket] = field(default_factory=list)
+    fallback: str = "Pop"
 
 
 # Ordered: most specific first, broadest/fallback last.
@@ -117,6 +126,91 @@ DEFAULT_BUCKETS: list[GenreBucket] = [
 FALLBACK_BUCKET = "Pop"
 
 
-def get_buckets() -> list[GenreBucket]:
-    """Return default buckets in check order (first match wins)."""
-    return list(DEFAULT_BUCKETS)
+# Electronic-focused preset: finer EDM sub-genre granularity, House fallback,
+# and no commercial genres (Schlager, Pop, Rock, Latin, Ballads, Disco).
+ELECTRONIC_BUCKETS: list[GenreBucket] = [
+    GenreBucket(
+        name="Drum & Bass",
+        genre_tags=["drum and bass", "jungle", "liquid dnb", "liquid funk", "dnb", "neurofunk"],
+    ),
+    GenreBucket(
+        name="Hardstyle / Hardcore",
+        genre_tags=["hardstyle", "hardcore", "gabber", "rawstyle", "hard dance"],
+    ),
+    GenreBucket(
+        name="Dubstep / Bass",
+        genre_tags=["dubstep", "bass music", "future bass", "riddim", "trap"],
+    ),
+    GenreBucket(
+        name="Melodic Techno",
+        genre_tags=["melodic techno", "melodic house", "indie dance"],
+    ),
+    GenreBucket(
+        name="Techno",
+        genre_tags=["techno", "hard techno", "industrial techno", "peak time techno"],
+    ),
+    GenreBucket(
+        name="Minimal / Tech House",
+        genre_tags=["minimal techno", "tech house", "minimal"],
+    ),
+    GenreBucket(
+        name="Deep House",
+        genre_tags=["deep house", "organic house", "tropical house", "afro house"],
+    ),
+    GenreBucket(
+        name="Progressive House",
+        genre_tags=["progressive house", "progressive trance"],
+    ),
+    GenreBucket(
+        name="Trance",
+        genre_tags=["trance", "psytrance", "uplifting trance", "goa"],
+    ),
+    GenreBucket(
+        name="EDM / Big Room",
+        genre_tags=["edm", "big room", "electro", "future house", "bigroom"],
+    ),
+    GenreBucket(
+        name="Disco / Nu Disco",
+        genre_tags=["nu disco", "disco", "italo disco", "funk", "boogie"],
+    ),
+    # --- Catch-all (checked last) ---
+    GenreBucket(
+        name="House",
+        genre_tags=["house", "electro house", "funky house", "uk garage", "garage", "dance"],
+    ),
+]
+
+
+# Registry of named presets. Profiles reference a preset by name or define
+# their own inline bucket list.
+PRESETS: dict[str, BucketPreset] = {
+    "commercial": BucketPreset(name="commercial", buckets=DEFAULT_BUCKETS, fallback=FALLBACK_BUCKET),
+    "electronic": BucketPreset(name="electronic", buckets=ELECTRONIC_BUCKETS, fallback="House"),
+}
+
+
+def get_preset(name: str) -> BucketPreset:
+    """Return the named preset, raising a clear error if it is unknown."""
+    try:
+        return PRESETS[name]
+    except KeyError:
+        known = ", ".join(sorted(PRESETS))
+        raise ValueError(f"Unknown genre bucket preset {name!r}. Known presets: {known}")
+
+
+def get_buckets(profile=None) -> list[GenreBucket]:
+    """Return buckets in check order (first match wins) for the given profile.
+
+    If ``profile`` is None, returns the default ``commercial`` buckets, preserving
+    the historical behaviour for callers that do not supply a profile.
+    """
+    if profile is None:
+        return list(DEFAULT_BUCKETS)
+    return list(profile.buckets)
+
+
+def get_fallback(profile=None) -> str:
+    """Return the fallback bucket name for the given profile."""
+    if profile is None:
+        return FALLBACK_BUCKET
+    return profile.fallback

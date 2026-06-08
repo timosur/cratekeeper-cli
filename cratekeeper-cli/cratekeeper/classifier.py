@@ -23,7 +23,11 @@ def _word_match(tag: str, genre: str) -> bool:
     return False
 
 
-def classify_track(track: Track, buckets: list[GenreBucket] | None = None) -> tuple[str, str]:
+def classify_track(
+    track: Track,
+    buckets: list[GenreBucket] | None = None,
+    fallback: str = FALLBACK_BUCKET,
+) -> tuple[str, str]:
     """Classify a single track into a genre bucket.
 
     Returns (bucket_name, confidence).
@@ -43,10 +47,14 @@ def classify_track(track: Track, buckets: list[GenreBucket] | None = None) -> tu
                     return bucket.name, "high"
 
     # Fallback
-    return FALLBACK_BUCKET, "low"
+    return fallback, "low"
 
 
-def classify_tracks(tracks: list[Track], buckets: list[GenreBucket] | None = None) -> list[Track]:
+def classify_tracks(
+    tracks: list[Track],
+    buckets: list[GenreBucket] | None = None,
+    fallback: str = FALLBACK_BUCKET,
+) -> list[Track]:
     """Classify all tracks and set their bucket + confidence fields.
 
     Returns the same tracks list (mutated).
@@ -55,7 +63,7 @@ def classify_tracks(tracks: list[Track], buckets: list[GenreBucket] | None = Non
         buckets = get_buckets()
 
     for track in tracks:
-        bucket_name, confidence = classify_track(track, buckets)
+        bucket_name, confidence = classify_track(track, buckets, fallback)
         track.bucket = bucket_name
         track.confidence = confidence
         track.era = track.compute_era()
@@ -63,7 +71,11 @@ def classify_tracks(tracks: list[Track], buckets: list[GenreBucket] | None = Non
     return tracks
 
 
-def consolidate_small_buckets(tracks: list[Track], min_size: int = 3) -> list[Track]:
+def consolidate_small_buckets(
+    tracks: list[Track],
+    min_size: int = 3,
+    fallback: str = FALLBACK_BUCKET,
+) -> list[Track]:
     """Merge buckets with fewer than min_size tracks into the fallback bucket.
 
     Returns the same tracks list (mutated).
@@ -71,16 +83,16 @@ def consolidate_small_buckets(tracks: list[Track], min_size: int = 3) -> list[Tr
     # Count tracks per bucket
     counts: dict[str, int] = {}
     for track in tracks:
-        bucket = track.bucket or FALLBACK_BUCKET
+        bucket = track.bucket or fallback
         counts[bucket] = counts.get(bucket, 0) + 1
 
     # Find small buckets
-    small_buckets = {b for b, count in counts.items() if count < min_size and b != FALLBACK_BUCKET}
+    small_buckets = {b for b, count in counts.items() if count < min_size and b != fallback}
 
     # Merge into fallback
     for track in tracks:
         if track.bucket in small_buckets:
-            track.bucket = FALLBACK_BUCKET
+            track.bucket = fallback
             track.confidence = "low"
 
     return tracks

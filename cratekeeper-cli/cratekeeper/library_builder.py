@@ -7,11 +7,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cratekeeper.models import Track
+from cratekeeper.sorting import sort_tracks
+
+DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
 
 
-def is_fully_tagged(track: Track) -> bool:
-    """Return True when track carries all required structured tags for library admission."""
-    return bool(track.energy and track.function and track.crowd and track.mood_tags)
+def is_fully_tagged(track: Track, required_fields: list[str] | None = None) -> bool:
+    """Return True when the track has every profile-required structured tag field.
+
+    ``required_fields`` defaults to the commercial set
+    (``energy``, ``function``, ``crowd``, ``mood_tags``) when not supplied,
+    preserving the historical admission gate.
+    """
+    fields = required_fields if required_fields is not None else DEFAULT_REQUIRED_FIELDS
+    return all(getattr(track, f, None) for f in fields)
 
 
 @dataclass
@@ -44,24 +53,38 @@ def build_library(
     tracks: list[Track],
     target_dir: Path,
     progress_callback=None,
+    required_fields: list[str] | None = None,
+    sort=None,
 ) -> BuildLibraryResult:
     """Copy approved, fully-tagged local files into Genre/ structure in the target directory.
 
     Only processes tracks that are:
     - ``library_approval == "approved"``
-    - fully tagged (energy, function, crowd, mood_tags all non-empty)
+    - fully tagged for the active profile's ``required_fields``
     - have ``local_path`` and ``bucket`` set
 
-    Returns a :class:`BuildLibraryResult` with counts for all disposition categories.
+    When ``sort`` is provided, tracks within each genre bucket are processed in
+    that order. Returns a :class:`BuildLibraryResult` with disposition counts.
     """
     target_dir = Path(target_dir)
     result = BuildLibraryResult()
+
+    # Order tracks within each bucket per the profile sort rule (stable, so the
+    # disposition logic below is unaffected for tracks that don't qualify).
+    if sort is not None:
+        grouped: dict[str | None, list[Track]] = {}
+        for t in tracks:
+            grouped.setdefault(t.bucket, []).append(t)
+        ordered: list[Track] = []
+        for bucket_tracks in grouped.values():
+            ordered.extend(sort_tracks(bucket_tracks, sort))
+        tracks = ordered
 
     # Pre-count qualifying tracks so progress_callback receives a meaningful total.
     qualifying_total = sum(
         1 for t in tracks
         if t.library_approval == "approved"
-        and is_fully_tagged(t)
+        and is_fully_tagged(t, required_fields)
         and t.local_path
         and t.bucket
     )
@@ -80,7 +103,7 @@ def build_library(
             result.undecided += 1
             continue
 
-        if not is_fully_tagged(track):
+        if not is_fully_tagged(track, required_fields):
             result.missing_tags += 1
             continue
 

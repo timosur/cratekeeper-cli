@@ -12,6 +12,13 @@ from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 
 from cratekeeper.models import Track
+from cratekeeper.tag_writer import COMMENT_MARKER
+
+DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
+
+# Tag format names (mirrors cratekeeper.config / tag_writer).
+STRUCTURED_COMMENT = "structured_comment"
+ID3_ONLY = "id3_only"
 
 
 def _safe_filename(name: str) -> str:
@@ -28,18 +35,20 @@ def _track_filename(track: Track) -> str:
     return _safe_filename(f"{artist} - {title}")
 
 
-def _is_fully_tagged(track: Track) -> bool:
-    """Return True when the track plan has all required structured tag fields."""
-    return bool(track.energy and track.function and track.crowd and track.mood_tags)
+def _is_fully_tagged(track: Track, required_fields: list[str] | None = None) -> bool:
+    """Return True when the track plan has every profile-required tag field."""
+    fields = required_fields if required_fields is not None else DEFAULT_REQUIRED_FIELDS
+    return all(getattr(track, f, None) for f in fields)
 
 
 def _has_embedded_comment(path: Path) -> bool:
     """Return True when the audio file has an embedded structured-tags comment.
 
-    Looks for a non-empty comment field containing 'energy:' — the marker
+    Looks for a non-empty comment field containing the structured-tags marker
     written by ``crate tag`` — across MP3, FLAC, and M4A/MP4 formats.
     Falls back to True for unknown formats (can't verify, don't block).
     """
+    marker = COMMENT_MARKER
     suffix = path.suffix.lower()
     try:
         if suffix == ".mp3":
@@ -47,18 +56,18 @@ def _has_embedded_comment(path: Path) -> bool:
             comm_keys = [k for k in tags.keys() if k.startswith("COMM")]
             for key in comm_keys:
                 val = str(tags[key])
-                if "energy:" in val:
+                if marker in val:
                     return True
             return False
         elif suffix == ".flac":
             audio = FLAC(str(path))
             comment = " ".join(audio.get("comment", []))
-            return "energy:" in comment
+            return marker in comment
         elif suffix in (".m4a", ".mp4"):
             audio = MP4(str(path))
             comment_vals = audio.get("\xa9cmt", [])
             comment = " ".join(str(v) for v in comment_vals)
-            return "energy:" in comment
+            return marker in comment
         else:
             audio = mutagen.File(str(path))
             if audio is None:
@@ -69,7 +78,7 @@ def _has_embedded_comment(path: Path) -> bool:
                 if val:
                     comment = " ".join(str(v) for v in (val if isinstance(val, list) else [val]))
                     break
-            return "energy:" in comment if comment else True
+            return marker in comment if comment else True
     except Exception:
         return False
 
@@ -89,13 +98,16 @@ def build_event_folder(
     tracks: list[Track],
     output_dir: Path,
     progress_callback=None,
+    required_fields: list[str] | None = None,
+    tag_format: str = STRUCTURED_COMMENT,
 ) -> BuildEventResult:
     """Copy eligible tracks flat into output_dir (no Genre/ subfolders).
 
     A track is eligible only when it:
     - has a ``local_path`` that exists on disk
-    - passes the plan-field tag gate (energy, function, crowd, mood_tags)
+    - passes the plan-field tag gate (active profile ``required_fields``)
     - has an embedded structured-tags comment in the audio file
+      (skipped when ``tag_format`` is ``id3_only``)
     - does not collide with a filename already claimed in this run
 
     Writes ``_missing.txt`` and ``_untagged.txt`` report files.
@@ -103,6 +115,9 @@ def build_event_folder(
     """
     output_dir = Path(output_dir)
     result = BuildEventResult()
+
+    # id3_only profiles intentionally write no structured comment, so skip that gate.
+    check_comment = tag_format != ID3_ONLY
 
     # Track which dest filenames have been claimed this run (base → source path)
     # to detect intra-run collisions for files not yet on disk.
@@ -112,8 +127,8 @@ def build_event_folder(
         1 for t in tracks
         if t.local_path
         and Path(t.local_path).exists()
-        and _is_fully_tagged(t)
-        and _has_embedded_comment(Path(t.local_path))
+        and _is_fully_tagged(t, required_fields)
+        and (not check_comment or _has_embedded_comment(Path(t.local_path)))
     )
     eligible_idx = 0
 
@@ -128,12 +143,12 @@ def build_event_folder(
             continue
 
         # Gate 2: plan JSON fields fully tagged
-        if not _is_fully_tagged(track):
+        if not _is_fully_tagged(track, required_fields):
             result.untagged_tracks.append(track)
             continue
 
-        # Gate 3: embedded comment present in the audio file
-        if not _has_embedded_comment(source):
+        # Gate 3: embedded comment present in the audio file (structured_comment only)
+        if check_comment and not _has_embedded_comment(source):
             result.untagged_tracks.append(track)
             continue
 

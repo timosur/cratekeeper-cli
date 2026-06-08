@@ -129,9 +129,88 @@ All commands use the `crate` CLI:
 | `crate review-library <file>` | Interactively approve/reject matched tracks before they enter the master library |
 | `crate build-library <file>` | Copy **approved + fully-tagged** files into `Genre/` master library structure |
 | `crate build-event <file>` | Copy fully-tagged files into a **flat** event folder; both plan tags and embedded comment required (for djay PRO quick filters) |
+| `crate import-library <dir>` | Bulk-import scanned local files into the active profile using their ID3 genre tags (no Spotify) |
+| `crate export-rekordbox` | Generate `rekordbox.xml` from the active profile's built library (collection + per-bucket playlists) |
+| `crate profile list` | List configured profiles and mark the active one |
+| `crate profile show [name]` | Print the fully resolved settings for a profile |
+| `crate profile use <name>` | Set the active profile in the config file |
+| `crate profile init` | Scaffold `~/.cratekeeper/config.toml` with example profiles |
 | `crate create-playlists <file>` | Create Spotify sub-playlists per genre bucket |
 | `crate build-masters <file>` | Add tracks to cross-event `[DJ] Genre` master playlists |
 | `crate sync-to-tidal <file>` | Sync classified playlists to Tidal via ISRC |
+
+## Profiles & Configuration
+
+Cratekeeper supports **named profiles** so you can run different libraries (e.g. a
+commercial wedding library and an electronic library) with different genre
+buckets, DJ-software targets, tag formats, admission criteria, and sort orders —
+without editing code.
+
+Profiles live in `~/.cratekeeper/config.toml`. Create one with:
+
+```bash
+crate profile init        # scaffolds commercial + electronic example profiles
+crate profile list        # show profiles, '*' marks the active one
+crate profile show electronic
+crate profile use electronic   # switch the active profile
+```
+
+Override the active profile for a single command with the global `--profile`
+flag (available on every command):
+
+```bash
+crate classify data/set.json --profile electronic
+crate -p electronic build-library data/set.json
+```
+
+If **no config file exists**, Cratekeeper uses an implicit `commercial` profile
+that reproduces the historical defaults, so existing setups keep working
+unchanged.
+
+### Profile settings
+
+Each `[profiles.<name>]` table supports:
+
+| Key | Values | Description |
+|-----|--------|-------------|
+| `buckets` | `"commercial"` \| `"electronic"` \| inline list | Genre bucket preset or custom `[{ name, genre_tags }]` list |
+| `dj_software` | `djay_pro` \| `rekordbox` | Target DJ software (gates auto-XML behaviour) |
+| `tag_format` | `structured_comment` \| `id3_only` | `structured_comment` writes the era/energy/function/crowd/mood comment; `id3_only` writes only genre/BPM/key |
+| `library_target` | path | Master library output directory |
+| `data_dir` | path | Per-profile plan JSON directory (defaults to `~/.cratekeeper/<name>/data`) |
+| `required_fields` | list | Tag fields that must be populated for library/event admission |
+| `[profiles.<name>.sort]` | `keys`, `direction` | Sort order within genre buckets (e.g. `keys = ["bpm"]`, `direction = "asc"`) |
+
+The bundled `electronic` preset uses finer EDM sub-genres with a `House`
+fallback and excludes commercial genres (Schlager, Pop, Rock, Latin).
+
+### Bulk library import (no Spotify)
+
+Import everything already scanned under a directory directly into a profile,
+classifying by each file's ID3 genre tag:
+
+```bash
+crate scan /Volumes/Music/Electronic            # index files first
+crate import-library /Volumes/Music/Electronic --profile electronic
+crate review-library <plan>                      # then the normal pipeline
+crate build-library <plan>
+```
+
+### Rekordbox export
+
+Rekordbox profiles do **not** auto-generate XML during `build-library`. Produce
+an importable `rekordbox.xml` on demand from the built library:
+
+```bash
+crate export-rekordbox --profile electronic
+crate export-rekordbox --buckets House,Techno -o ~/rekordbox.xml
+```
+
+> **Breaking change:** existing plans in the legacy `data/` directory are **not**
+> auto-migrated to a profile's `data_dir`. After adopting profiles, move your
+> existing plan JSON files into the relevant profile's `data_dir` (shown by
+> `crate profile show`) or re-import them. The shared PostgreSQL scan index is
+> unaffected and remains shared across profiles.
 
 ## Full Pipeline
 

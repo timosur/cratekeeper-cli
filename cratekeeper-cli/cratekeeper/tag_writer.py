@@ -19,6 +19,24 @@ from mutagen.mp4 import MP4
 
 from cratekeeper.models import Track
 
+# --- Single source of truth for structured-tag vocabulary and comment format ---
+
+VALID_ENERGY = {"low", "mid", "high"}
+VALID_FUNCTION = {"floorfiller", "singalong", "bridge", "reset", "closer", "opener"}
+VALID_CROWD = {"mixed-age", "older", "younger", "family"}
+VALID_MOOD = {
+    "feelgood", "emotional", "euphoric", "nostalgic",
+    "romantic", "melancholic", "dark", "aggressive",
+    "uplifting", "dreamy", "funky", "groovy",
+}
+
+# Marker that identifies a structured-tags comment embedded in an audio file.
+COMMENT_MARKER = "energy:"
+
+# Tag format names (see cratekeeper.config).
+STRUCTURED_COMMENT = "structured_comment"
+ID3_ONLY = "id3_only"
+
 
 def _build_comment(track: Track) -> str:
     """Build the structured tags comment string."""
@@ -43,8 +61,12 @@ def _build_comment(track: Track) -> str:
     return "; ".join(parts)
 
 
-def tag_track(track: Track) -> bool:
+def tag_track(track: Track, tag_format: str = STRUCTURED_COMMENT) -> bool:
     """Write classification metadata into a track's audio file tags.
+
+    ``tag_format`` controls whether the structured comment is written:
+    - ``structured_comment``: genre/BPM/key plus the structured comment.
+    - ``id3_only``: only genre/BPM/key; no structured comment.
 
     Returns True if tags were written successfully.
     """
@@ -55,22 +77,23 @@ def tag_track(track: Track) -> bool:
     if not path.exists():
         return False
 
+    write_comment = tag_format != ID3_ONLY
     suffix = path.suffix.lower()
 
     try:
         if suffix == ".mp3":
-            return _tag_mp3(path, track)
+            return _tag_mp3(path, track, write_comment)
         elif suffix == ".flac":
-            return _tag_flac(path, track)
+            return _tag_flac(path, track, write_comment)
         elif suffix in (".m4a", ".mp4"):
-            return _tag_m4a(path, track)
+            return _tag_m4a(path, track, write_comment)
         else:
             return _tag_generic(path, track)
     except Exception:
         return False
 
 
-def _tag_mp3(path: Path, track: Track) -> bool:
+def _tag_mp3(path: Path, track: Track, write_comment: bool = True) -> bool:
     """Write tags to an MP3 file using ID3."""
     try:
         tags = ID3(str(path))
@@ -93,16 +116,17 @@ def _tag_mp3(path: Path, track: Track) -> bool:
         tags.add(TKEY(encoding=3, text=[track.key]))
 
     # Structured tags comment
-    comment = _build_comment(track)
-    if comment:
-        tags.delall("COMM")
-        tags.add(COMM(encoding=3, lang="eng", desc="", text=[comment]))
+    if write_comment:
+        comment = _build_comment(track)
+        if comment:
+            tags.delall("COMM")
+            tags.add(COMM(encoding=3, lang="eng", desc="", text=[comment]))
 
     tags.save(str(path))
     return True
 
 
-def _tag_flac(path: Path, track: Track) -> bool:
+def _tag_flac(path: Path, track: Track, write_comment: bool = True) -> bool:
     """Write tags to a FLAC file."""
     audio = FLAC(str(path))
 
@@ -115,15 +139,16 @@ def _tag_flac(path: Path, track: Track) -> bool:
     if track.key:
         audio["initialkey"] = track.key
 
-    comment = _build_comment(track)
-    if comment:
-        audio["comment"] = comment
+    if write_comment:
+        comment = _build_comment(track)
+        if comment:
+            audio["comment"] = comment
 
     audio.save()
     return True
 
 
-def _tag_m4a(path: Path, track: Track) -> bool:
+def _tag_m4a(path: Path, track: Track, write_comment: bool = True) -> bool:
     """Write tags to an M4A/MP4 file using iTunes-style atoms."""
     audio = MP4(str(path))
 
@@ -133,9 +158,10 @@ def _tag_m4a(path: Path, track: Track) -> bool:
     if track.bpm:
         audio["tmpo"] = [int(round(track.bpm))]
 
-    comment = _build_comment(track)
-    if comment:
-        audio["\xa9cmt"] = [comment]
+    if write_comment:
+        comment = _build_comment(track)
+        if comment:
+            audio["\xa9cmt"] = [comment]
 
     # Key — no standard MP4 atom, store as freeform
     if track.key:
@@ -160,7 +186,7 @@ def _tag_generic(path: Path, track: Track) -> bool:
     return True
 
 
-def tag_tracks(tracks: list[Track], progress_callback=None) -> tuple[int, int]:
+def tag_tracks(tracks: list[Track], progress_callback=None, tag_format: str = STRUCTURED_COMMENT) -> tuple[int, int]:
     """Write tags for all tracks with a local_path.
 
     Returns (success_count, fail_count).
@@ -170,7 +196,7 @@ def tag_tracks(tracks: list[Track], progress_callback=None) -> tuple[int, int]:
     failed = 0
 
     for i, track in enumerate(candidates):
-        ok = tag_track(track)
+        ok = tag_track(track, tag_format)
         if ok:
             success += 1
         else:

@@ -13,13 +13,30 @@ from cratekeeper.models import EventPlan, LibraryImportPlan, Plan
 app = typer.Typer(help="Cratekeeper — DJ library management CLI")
 console = Console()
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+@app.callback()
+def main(
+    ctx: typer.Context,
+    profile: str = typer.Option(
+        None, "--profile", "-p",
+        help="Profile to use for this invocation (overrides config active_profile)",
+    ),
+) -> None:
+    """Resolve the active profile once and stash it on the Typer context."""
+    from cratekeeper.config import ConfigError, resolve_profile
+
+    try:
+        ctx.obj = resolve_profile(profile)
+    except ConfigError as exc:
+        console.print(f"[red]Config error:[/red] {exc}")
+        raise typer.Exit(1)
 
 
 @app.command()
 def fetch(
+    ctx: typer.Context,
     playlist_url: str = typer.Argument(help="Spotify playlist URL or ID"),
-    output: Path = typer.Option(None, "--output", "-o", help="Output JSON path (default: data/<playlist-name>.json)"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output JSON path (default: <profile data_dir>/<playlist-name>.json)"),
 ) -> None:
     """Fetch all tracks from a Spotify playlist, enrich with artist genres, save to JSON."""
     from cratekeeper.spotify_client import (
@@ -85,9 +102,10 @@ def fetch(
         )
 
     if output is None:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        data_dir = ctx.obj.data_dir
+        data_dir.mkdir(parents=True, exist_ok=True)
         safe_name = playlist_name.lower().replace(" ", "-").replace("/", "-")[:50]
-        output = DATA_DIR / f"{safe_name}.json"
+        output = data_dir / f"{safe_name}.json"
 
     plan.save(output)
     console.print(f"Saved to [green]{output}[/green]")
@@ -95,6 +113,7 @@ def fetch(
 
 @app.command()
 def classify(
+    ctx: typer.Context,
     input_file: Path = typer.Argument(help="Path to fetched playlist JSON"),
     min_bucket_size: int = typer.Option(3, "--min-bucket", help="Minimum tracks per bucket (smaller buckets get merged)"),
     enrich: bool = typer.Option(False, "--enrich", "-e", help="Enrich missing genres via MusicBrainz before classifying"),
@@ -102,8 +121,12 @@ def classify(
     """Classify tracks into genre buckets and print a summary."""
     from cratekeeper.classifier import classify_tracks, consolidate_small_buckets
 
+    profile = ctx.obj
     plan = Plan.load(input_file)
-    console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks from '{plan.source_playlist_name}'")
+    console.print(
+        f"Loaded [green]{len(plan.tracks)}[/green] tracks from '{plan.source_playlist_name}' "
+        f"[dim](profile: {profile.name})[/dim]"
+    )
 
     if enrich:
         from cratekeeper.musicbrainz_client import enrich_tracks_genres
@@ -119,8 +142,8 @@ def classify(
         else:
             console.print("[dim]No tracks need enrichment[/dim]")
 
-    classify_tracks(plan.tracks)
-    consolidate_small_buckets(plan.tracks, min_size=min_bucket_size)
+    classify_tracks(plan.tracks, buckets=profile.buckets, fallback=profile.fallback)
+    consolidate_small_buckets(plan.tracks, min_size=min_bucket_size, fallback=profile.fallback)
 
     # Print summary table
     buckets = plan.bucket_summary()
@@ -581,12 +604,16 @@ def _print_review_summary(candidates: list) -> None:
 
 @app.command(name="review-library")
 def review_library_cmd(
+    ctx: typer.Context,
     input_file: Path = typer.Argument(help="Path to classified JSON plan"),
 ) -> None:
     """Interactively approve or reject candidate tracks for the master library."""
     import sys
     from rich.panel import Panel
-    from cratekeeper.review_library import candidate_tracks, undecided_candidates
+    from cratekeeper.review_library import candidate_tracks, is_admission_complete, undecided_candidates
+
+    profile = ctx.obj
+    required_fields = profile.required_fields
 
     # EC-5: refuse to run when stdin is not an interactive terminal.
     if not sys.stdin.isatty():
@@ -628,6 +655,10 @@ def review_library_cmd(
             )
         if track.mood_tags:
             info_lines.append(f"Mood: {', '.join(track.mood_tags)}")
+        if is_admission_complete(track, required_fields):
+            info_lines.append("[green]Fully tagged for this profile[/green]")
+        else:
+            info_lines.append(f"[yellow]Not yet fully tagged (needs: {', '.join(required_fields)})[/yellow]")
         console.print(Panel("\n".join(info_lines), title=f"[{idx}/{len(pending)}]"))
 
         while True:
@@ -672,21 +703,28 @@ def review_library_cmd(
 
 @app.command(name="build-library")
 def build_library_cmd(
+    ctx: typer.Context,
     input_file: Path = typer.Argument(help="Path to classified JSON with local_path"),
-    target: Path = typer.Option(Path.home() / "Music" / "Library", "--target", "-t", help="Target directory for the master library"),
+    target: Path = typer.Option(None, "--target", "-t", help="Target directory (default: active profile's library_target)"),
 ) -> None:
     """Copy approved, fully-tagged matched files into a Genre/ folder structure."""
     from cratekeeper.library_builder import build_library, is_fully_tagged
 
+    profile = ctx.obj
+    if target is None:
+        target = profile.library_target
+    required_fields = profile.required_fields
+
     plan = Plan.load(input_file)
 
     candidates = [t for t in plan.tracks if t.local_path and t.bucket]
-    approved_tagged = [t for t in candidates if t.library_approval == "approved" and is_fully_tagged(t)]
+    approved_tagged = [t for t in candidates if t.library_approval == "approved" and is_fully_tagged(t, required_fields)]
 
     console.print(
         f"Loaded [green]{len(plan.tracks)}[/green] tracks, "
         f"[cyan]{len(candidates)}[/cyan] candidates, "
-        f"[green]{len(approved_tagged)}[/green] approved+tagged"
+        f"[green]{len(approved_tagged)}[/green] approved+tagged "
+        f"[dim](profile: {profile.name} → {target})[/dim]"
     )
 
     # AC-6: candidates exist but none qualify → warn and exit non-zero without copying.
@@ -695,7 +733,7 @@ def build_library_cmd(
         rejected_count = sum(1 for t in candidates if t.library_approval == "rejected")
         untagged_count = sum(
             1 for t in candidates
-            if t.library_approval == "approved" and not is_fully_tagged(t)
+            if t.library_approval == "approved" and not is_fully_tagged(t, required_fields)
         )
         console.print("[red]No tracks qualify for the master library.[/red]")
         if undecided_count:
@@ -716,7 +754,10 @@ def build_library_cmd(
         if i % 20 == 0 or i == total:
             console.print(f"  [{i}/{total}] {track.display_name()}")
 
-    result = build_library(plan.tracks, target, progress_callback=_progress)
+    result = build_library(
+        plan.tracks, target, progress_callback=_progress,
+        required_fields=required_fields, sort=profile.sort,
+    )
 
     table = Table(title="Library Build Results")
     table.add_column("Metric", style="cyan")
@@ -735,21 +776,25 @@ def build_library_cmd(
 
 @app.command(name="build-event")
 def build_event_cmd(
+    ctx: typer.Context,
     input_file: Path = typer.Argument(help="Path to classified JSON with local_path"),
     output: Path = typer.Option(..., "--output", "-o", help="Output directory for event folder (e.g., ~/Music/Events/Wedding/)"),
 ) -> None:
     """Copy fully-tagged tracks flat into an event folder (no Genre/ subfolders)."""
     from cratekeeper.event_builder import build_event_folder, _is_fully_tagged
 
+    profile = ctx.obj
+    required_fields = profile.required_fields
+
     plan = Plan.load(input_file)
     if not isinstance(plan, EventPlan):
         console.print("[red]build-event is not applicable to library imports. Use build-library instead.[/red]")
         raise typer.Exit(1)
-    console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks")
+    console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks [dim](profile: {profile.name})[/dim]")
 
     # AC-7: warn early if nothing will qualify (plan-field check only — fast pre-scan)
     candidates = [t for t in plan.tracks if t.local_path]
-    fully_tagged_candidates = [t for t in candidates if _is_fully_tagged(t)]
+    fully_tagged_candidates = [t for t in candidates if _is_fully_tagged(t, required_fields)]
     if candidates and not fully_tagged_candidates:
         untagged_count = len(candidates) - len(fully_tagged_candidates)
         console.print("[red]No tracks qualify for the event folder — none have all required tags.[/red]")
@@ -764,7 +809,10 @@ def build_event_cmd(
         if i % 20 == 0 or i == total:
             console.print(f"  [{i}/{total}] {track.display_name()}")
 
-    result = build_event_folder(plan.tracks, output, progress_callback=_progress)
+    result = build_event_folder(
+        plan.tracks, output, progress_callback=_progress,
+        required_fields=required_fields, tag_format=profile.tag_format,
+    )
 
     total_eligible = result.copied + result.already_existed
     # AC-7: zero eligible after the full dual gate
@@ -806,14 +854,7 @@ def apply_tags(
     """Apply pre-classified tags from a JSON file into the classified event plan."""
     import json as _json
 
-    VALID_ENERGY = {"low", "mid", "high"}
-    VALID_FUNCTION = {"floorfiller", "singalong", "bridge", "reset", "closer", "opener"}
-    VALID_CROWD = {"mixed-age", "older", "younger", "family"}
-    VALID_MOOD = {
-        "feelgood", "emotional", "euphoric", "nostalgic",
-        "romantic", "melancholic", "dark", "aggressive",
-        "uplifting", "dreamy", "funky", "groovy",
-    }
+    from cratekeeper.tag_writer import VALID_ENERGY, VALID_FUNCTION, VALID_CROWD, VALID_MOOD
 
     plan = Plan.load(input_file)
     tags_data = _json.loads(tags_file.read_text())
@@ -871,21 +912,26 @@ def apply_tags(
 
 @app.command()
 def tag(
+    ctx: typer.Context,
     input_file: Path = typer.Argument(help="Path to classified JSON with local_path"),
 ) -> None:
     """Write genre, BPM, key, and structured tags into audio file ID3/FLAC tags."""
     from cratekeeper.tag_writer import tag_tracks
 
+    profile = ctx.obj
     plan = Plan.load(input_file)
     candidates = sum(1 for t in plan.tracks if t.local_path)
-    console.print(f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{candidates}[/cyan] with local files")
+    console.print(
+        f"Loaded [green]{len(plan.tracks)}[/green] tracks, [cyan]{candidates}[/cyan] with local files "
+        f"[dim](tag format: {profile.tag_format})[/dim]"
+    )
 
     def _progress(i, total, track, ok):
         status = "[green]ok[/green]" if ok else "[red]failed[/red]"
         if i % 20 == 0 or i == total or not ok:
             console.print(f"  [{i}/{total}] {track.display_name()} → {status}")
 
-    success, failed = tag_tracks(plan.tracks, progress_callback=_progress)
+    success, failed = tag_tracks(plan.tracks, progress_callback=_progress, tag_format=profile.tag_format)
 
     console.print(f"\n[green]Tagged {success} tracks[/green]", end="")
     if failed:
@@ -994,6 +1040,187 @@ def tag_untagged(
             skipped += 1
 
     console.print(f"\n[green]Tagged {tagged}[/green], [yellow]{not_found} not found[/yellow], [red]{skipped} errors[/red]")
+
+
+@app.command(name="import-library")
+def import_library(
+    ctx: typer.Context,
+    source_path: Path = typer.Argument(help="Directory of scanned local files to import into the active profile"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output plan path (default: <profile data_dir>/<source>.json)"),
+) -> None:
+    """Import scanned local files into the active profile using their ID3 genre tags."""
+    from cratekeeper.bulk_import import SourceNotScannedError, import_tracks
+    from cratekeeper.classifier import classify_tracks
+
+    profile = ctx.obj
+    console.print(
+        f"Importing local files under [cyan]{source_path}[/cyan] "
+        f"[dim](profile: {profile.name})[/dim]"
+    )
+
+    try:
+        tracks = import_tracks(source_path)
+    except SourceNotScannedError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"Found [green]{len(tracks)}[/green] scanned files")
+
+    classify_tracks(tracks, buckets=profile.buckets, fallback=profile.fallback)
+
+    source = Path(source_path).expanduser()
+    plan = LibraryImportPlan(
+        source_playlist_id=f"import:{source}",
+        source_playlist_name=source.name or str(source),
+        tracks=tracks,
+    )
+
+    if output is None:
+        data_dir = profile.data_dir
+        data_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = (source.name or "import").lower().replace(" ", "-").replace("/", "-")[:50]
+        output = data_dir / f"{safe_name}.json"
+
+    plan.save(output)
+
+    # Bucket summary
+    summary = plan.bucket_summary()
+    table = Table(title=f"Imported {len(tracks)} tracks — {profile.name}")
+    table.add_column("Bucket", style="cyan")
+    table.add_column("Tracks", justify="right", style="green")
+    for bucket_name, bucket_tracks in summary.items():
+        table.add_row(bucket_name, str(len(bucket_tracks)))
+    console.print(table)
+
+    console.print(f"Saved library-import plan to [green]{output}[/green]")
+    console.print("Next: [bold]crate review-library[/bold] then [bold]crate build-library[/bold].")
+
+
+@app.command(name="export-rekordbox")
+def export_rekordbox_cmd(
+    ctx: typer.Context,
+    library: Path = typer.Option(None, "--library", "-l", help="Library directory (default: active profile's library_target)"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output XML path (default: <library>/rekordbox.xml)"),
+    buckets: str = typer.Option(None, "--buckets", "-b", help="Comma-separated genre buckets to include (default: all)"),
+) -> None:
+    """Generate a Rekordbox XML from the active profile's built library."""
+    from cratekeeper.rekordbox_export import EmptyLibraryError, export_rekordbox
+
+    profile = ctx.obj
+    library_dir = library if library is not None else profile.library_target
+    out_path = output if output is not None else Path(library_dir) / "rekordbox.xml"
+    bucket_filter = [b.strip() for b in buckets.split(",")] if buckets else None
+
+    console.print(
+        f"Exporting Rekordbox XML from [cyan]{library_dir}[/cyan] "
+        f"[dim](profile: {profile.name})[/dim]"
+    )
+
+    try:
+        track_count, bucket_count = export_rekordbox(
+            library_dir, out_path, buckets_filter=bucket_filter, sort=profile.sort
+        )
+    except EmptyLibraryError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Wrote {track_count} tracks across {bucket_count} playlist(s)[/green] to {out_path}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# profile subcommands
+# ---------------------------------------------------------------------------
+
+profile_app = typer.Typer(help="Inspect and manage configuration profiles")
+app.add_typer(profile_app, name="profile")
+
+
+@profile_app.command("list")
+def profile_list() -> None:
+    """List defined profiles and mark the active one."""
+    from cratekeeper.config import active_profile_name, load_settings
+
+    settings = load_settings()
+    if settings is None:
+        console.print("No config file found — using the implicit [green]commercial[/green] profile.")
+        console.print("Run [bold]crate profile init[/bold] to create a config with multiple profiles.")
+        return
+
+    active = active_profile_name(settings)
+    table = Table(title="Profiles")
+    table.add_column("", style="green")
+    table.add_column("Name", style="cyan")
+    table.add_column("Buckets", justify="right")
+    table.add_column("DJ software")
+    table.add_column("Tag format")
+    for name, prof in settings.profiles.items():
+        marker = "*" if name == active else ""
+        table.add_row(marker, name, str(len(prof.buckets)), prof.dj_software, prof.tag_format)
+    console.print(table)
+
+
+@profile_app.command("show")
+def profile_show(
+    name: str = typer.Argument(None, help="Profile name (default: active profile)"),
+) -> None:
+    """Print the fully resolved settings for a profile."""
+    from cratekeeper.config import ConfigError, resolve_profile
+
+    try:
+        prof = resolve_profile(name)
+    except ConfigError as exc:
+        console.print(f"[red]Config error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    info = prof.describe()
+    table = Table(title=f"Profile: {info['name']}")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+    table.add_row("Buckets", ", ".join(info["buckets"]))
+    table.add_row("Fallback", info["fallback"])
+    table.add_row("DJ software", info["dj_software"])
+    table.add_row("Tag format", info["tag_format"])
+    table.add_row("Library target", info["library_target"])
+    table.add_row("Data dir", info["data_dir"])
+    table.add_row("Required fields", ", ".join(info["required_fields"]))
+    sort = info["sort"]
+    table.add_row("Sort", "none" if sort is None else f"{', '.join(sort['keys'])} ({sort['direction']})")
+    console.print(table)
+
+
+@profile_app.command("use")
+def profile_use(
+    name: str = typer.Argument(help="Profile name to activate"),
+) -> None:
+    """Set the active profile in the config file."""
+    from cratekeeper.config import ConfigError, set_active_profile
+
+    try:
+        path = set_active_profile(name)
+    except ConfigError as exc:
+        console.print(f"[red]Config error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Active profile set to '{name}'[/green] in {path}")
+
+
+@profile_app.command("init")
+def profile_init() -> None:
+    """Scaffold a config file with commercial + electronic example profiles."""
+    from cratekeeper.config import ConfigError, _legacy_data_dir, write_default_config
+
+    try:
+        path = write_default_config()
+    except ConfigError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Created config at {path}[/green]")
+    console.print(
+        "[yellow]Note:[/yellow] existing plans in "
+        f"[dim]{_legacy_data_dir()}[/dim] are not auto-migrated. "
+        "Move them into a profile's data_dir or re-import."
+    )
 
 
 if __name__ == "__main__":
