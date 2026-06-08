@@ -7,11 +7,17 @@ Copies approved and fully tagged tracks into the master library using a `Genre/A
 ## Requirements
 
 ### Requirement: Copy only approved and fully tagged tracks to master library
-The system SHALL copy a track into the master library only when it is `library_approval == "approved"` AND fully tagged (`energy`, `function`, `crowd`, `mood_tags` all non-empty) AND has a `local_path` and `bucket`.
+The system SHALL copy a track into the master library only when it is `library_approval == "approved"` AND fully tagged (`energy`, `function`, `crowd`, `mood_tags` all non-empty) AND has a `local_path` and `bucket`. This applies to both event and library-import plans.
 
-#### Scenario: Successful library copy
-- **WHEN** the DJ runs `crate build-library` and a track meets all admission criteria
-- **THEN** the system copies the file to `<target>/Genre/Artist - Title.ext`
+#### Scenario: Successful library copy from event plan
+- **GIVEN** an event plan with tracks meeting all admission criteria
+- **WHEN** the DJ runs `crate build-library`
+- **THEN** the system copies qualifying files to `<target>/Genre/Artist - Title.ext`
+
+#### Scenario: Successful library copy from library-import plan
+- **GIVEN** a library-import plan with tracks meeting all admission criteria
+- **WHEN** the DJ runs `crate build-library`
+- **THEN** the system copies qualifying files to `<target>/Genre/Artist - Title.ext` identically to event plans
 
 #### Scenario: Rejected track excluded
 - **WHEN** a track has `library_approval == "rejected"`
