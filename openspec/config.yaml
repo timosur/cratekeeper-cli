@@ -1,33 +1,20 @@
-schema: spec-driven
+schema: intent-driven
 
 context: |
   Project: Cratekeeper — DJ library management CLI (`crate`)
-  
-  Vision: A single-binary Python CLI tool that turns a DJ's Spotify wish playlist
+
+  Vision: A single-binary Python CLI tool that turns a DJ's Spotify playlists
   into an organized, analyzed, and tagged local music crate, and keeps a master
   library curated the same way over time. File-driven pipeline: classify tracks
-  by genre, match to local audio files, analyze sound, tag, lay out in event-ready folders.
-  
-  Target user: Solo working DJ (weddings, parties, corporate events) who owns a
-  local/NAS music library and is comfortable on the command line.
+  by genre, match to local audio files, analyze sound, tag, lay out in event-ready folders
+  and master library folder.
   
   Tech stack: Python 3.11+, Typer (CLI), Rich (console), Spotipy, tidalapi,
   mutagen (audio tags), psycopg2 (PostgreSQL), thefuzz (fuzzy matching),
   essentia-tensorflow (audio analysis, Docker only). Build: Hatchling (PEP 517).
   
-  Companion services:
-  - spotify-mcp: TypeScript MCP server for Spotify
-  - tidal-mcp: Python MCP server for Tidal
-  - Docker (PostgreSQL 16 + essentia analysis container)
-  
-  Pipeline order:
-  fetch -> enrich -> classify -> scan -> match -> analyze-mood ->
-  [LLM tagging via agent] -> apply-tags -> tag -> review-library ->
-  build-library -> build-event
-  
   Constraints:
   - Single CLI, no services or daemons
-  - File-driven, re-runnable stages (state in data/*.json event plans)
   - Docker for audio analysis only (essentia + TF require Linux x86_64)
   - PostgreSQL for local file index (scan/match)
   - Spotify and MusicBrainz rate limits respected
@@ -36,21 +23,14 @@ context: |
   
   Non-goals: No GUI, no real-time playback, no music downloading,
   no multi-user/cloud sync, no mobile app.
-  
-  Success metrics:
-  - Auto-classification rate >= 90%
-  - Local match rate >= 80% of owned tracks
-  - Analysis and tag coverage >= 95% of matched tracks
-  - Manual review rate <= 15%
 
 rules:
   proposal:
-    - Reference existing specs by capability name
-    - Always include a Capabilities section listing new/modified specs
-  specs:
-    - Use SHALL/MUST for normative requirements
-    - Every requirement MUST have at least one scenario
-    - Scenarios use WHEN/THEN format
-  tasks:
-    - Break tasks into phases with checkpoints
-    - Each task should be completable in one session
+    - Must use grill-me skill
+  design:
+    - Must use c4-diagrams skill
+  adr:
+    - Must use architectural-decision-records skill
+  spec:
+    - Must use gherkin-authoring skill
+
