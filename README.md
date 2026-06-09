@@ -51,21 +51,50 @@ cratekeeper/
 - **Tidal account** — HiFi or HiFi Plus
 - **Anthropic API key** — for LLM tag classification (`ANTHROPIC_API_KEY` env var)
 
-## Setup
+## Local Development
 
-### 1. Install Cratekeeper
+A `Makefile` provides all common dev tasks. Run `make help` to see available targets.
+
+### Quick Start
 
 ```bash
-cd cratekeeper-cli
-pip install -e .
+make venv          # create .venv with Python ≥3.11, install package + dev deps
+./crate --help
 ```
 
-This gives you the `crate` command.
+The `venv` target auto-discovers `python3.11`/`3.12`/`3.13` from your PATH or Homebrew. A `.python-version` file is included for pyenv users.
 
-### 2. Build Docker Image (for audio analysis)
+### Running CLI Commands
+
+A `./crate` wrapper script at the repo root runs the CLI from the `.venv` without activation:
 
 ```bash
-docker compose build
+./crate fetch https://open.spotify.com/playlist/...
+./crate classify data/wedding.json
+./crate scan /Volumes/Music
+./crate profile list
+```
+
+### Available Targets
+
+| Target | Description |
+|--------|-------------|
+| `make venv` | Create `.venv` and install `cratekeeper[dev]` (pytest, ruff) |
+| `make install` | Re-install package + dev deps into existing venv |
+| `make test` | Run pytest (`make test ARGS="-k test_config"` to filter) |
+| `make lint` | Run ruff check |
+| `make format` | Run ruff format |
+| `make check` | Lint + test combined |
+| `make db` | Start Postgres via docker compose |
+| `make db-stop` | Stop docker compose services |
+| `make docker-build` | Build Docker image (essentia + TF models) |
+| `make docker-run` | Run crate in Docker (`make docker-run ARGS="analyze-mood /data/file.json"`) |
+| `make clean` | Remove `.venv`, caches, build artifacts |
+
+### Build Docker Image (for audio analysis)
+
+```bash
+make docker-build
 ```
 
 The Docker image includes essentia, essentia-tensorflow, and 10 pre-trained TF models (~300 MB total) for mood classification, key detection, arousal/valence, and voice/instrumental detection.
@@ -379,10 +408,10 @@ The Docker image is used only for audio analysis (essentia + TF models). All oth
 
 ```bash
 # Build
-docker compose build
+make docker-build
 
 # Run audio analysis
-docker compose run --rm crate analyze-mood /data/<file>.classified.json
+make docker-run ARGS="analyze-mood /data/<file>.classified.json"
 
 # The docker-compose.yml maps:
 #   ./data → /data

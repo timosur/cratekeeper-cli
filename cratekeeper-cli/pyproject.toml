@@ -18,6 +18,11 @@ dependencies = [
 audio = [
     "essentia-tensorflow>=2.1b6.dev1110; platform_system != 'Windows'",
 ]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
+    "build>=1.0.0",
+]
 
 [project.scripts]
 crate = "cratekeeper.cli:app"
@@ -28,3 +33,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cratekeeper"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
