@@ -1,0 +1,730 @@
+"""Interactive wizard — guides users through the full CLI pipeline step by step."""
+
+from __future__ import annotations
+
+import json as _json
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
+
+from cratekeeper.models import EventPlan, LibraryImportPlan, Plan
+
+console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Step descriptor
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Step:
+    """Describes one pipeline step the wizard can execute."""
+
+    id: str
+    label: str
+    required: bool
+    needs_docker: bool = False
+    needs_input: list[str] = field(default_factory=list)
+    run: Callable[..., Any] = field(default=lambda **kw: None)
+    is_complete: Callable[[Plan], bool] = field(default=lambda plan: False)
+
+
+# ---------------------------------------------------------------------------
+# is_complete helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_complete(plan: Plan) -> bool:
+    return len(plan.tracks) > 0
+
+
+def _classify_complete(plan: Plan) -> bool:
+    return bool(plan.tracks) and all(t.bucket for t in plan.tracks)
+
+
+def _enrich_complete(plan: Plan) -> bool:
+    candidates = [t for t in plan.tracks if t.isrc]
+    if not candidates:
+        return True
+    return all(t.artist_genres for t in candidates)
+
+
+def _match_complete(plan: Plan) -> bool:
+    return bool(plan.tracks) and all(t.local_path for t in plan.tracks if t.bucket)
+
+
+def _analyze_mood_complete(plan: Plan) -> bool:
+    with_path = [t for t in plan.tracks if t.local_path]
+    if not with_path:
+        return False
+    return all(t.bpm is not None and t.audio_mood for t in with_path)
+
+
+def _apply_tags_complete(plan: Plan) -> bool:
+    with_path = [t for t in plan.tracks if t.local_path]
+    if not with_path:
+        return False
+    return all(t.energy and t.function for t in with_path)
+
+
+def _tag_complete(plan: Plan) -> bool:
+    """No tags_written field exists — use bucket + local_path + bpm as proxy."""
+    with_path = [t for t in plan.tracks if t.local_path and t.bucket]
+    if not with_path:
+        return False
+    # After tagging, tracks should have bpm written. This is a heuristic.
+    return all(t.bpm is not None for t in with_path)
+
+
+def _review_library_complete(plan: Plan) -> bool:
+    candidates = [t for t in plan.tracks if t.local_path and t.bucket]
+    if not candidates:
+        return False
+    return all(t.library_approval != "undecided" for t in candidates)
+
+
+def _build_library_complete(plan: Plan) -> bool:
+    # Can't detect from plan alone. Always return False to let the user re-run.
+    return False
+
+
+def _build_event_complete(plan: Plan) -> bool:
+    return False
+
+
+def _scan_complete(plan: Plan) -> bool:
+    # Scan doesn't modify the plan — always runnable.
+    return False
+
+
+def _import_library_complete(plan: Plan) -> bool:
+    return _fetch_complete(plan)  # same check — tracks exist
+
+
+def _create_playlists_complete(plan: Plan) -> bool:
+    if isinstance(plan, EventPlan):
+        return bool(plan.created_playlists)
+    return False
+
+
+def _sync_tidal_complete(plan: Plan) -> bool:
+    if isinstance(plan, EventPlan):
+        return bool(plan.tidal_playlists)
+    return False
+
+
+def _export_rekordbox_complete(plan: Plan) -> bool:
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Step runner functions
+# ---------------------------------------------------------------------------
+
+def _run_fetch(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.spotify_client import (
+        extract_playlist_id,
+        fetch_artist_genres,
+        fetch_playlist_tracks,
+        get_spotify_client,
+    )
+
+    console.print("[bold]Connecting to Spotify...[/bold]")
+    sp = get_spotify_client()
+
+    playlist_url = inputs["playlist_url"]
+    playlist_id = extract_playlist_id(playlist_url)
+    console.print(f"Fetching playlist [cyan]{playlist_id}[/cyan]...")
+
+    playlist_name, tracks = fetch_playlist_tracks(sp, playlist_id)
+    console.print(f"Found [green]{len(tracks)}[/green] tracks in '{playlist_name}'")
+
+    all_artist_ids = list({aid for t in tracks for aid in t.artist_ids})
+    console.print(f"Fetching genres for [cyan]{len(all_artist_ids)}[/cyan] unique artists...")
+    artist_genres = fetch_artist_genres(sp, all_artist_ids)
+
+    for track in tracks:
+        genres: list[str] = []
+        for aid in track.artist_ids:
+            genres.extend(artist_genres.get(aid, []))
+        track.artist_genres = list(set(genres))
+
+    plan = EventPlan(
+        source_playlist_id=playlist_id,
+        source_playlist_name=playlist_name,
+        tracks=tracks,
+    )
+
+    data_dir = profile.data_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = playlist_name.lower().replace(" ", "-").replace("/", "-")[:50]
+    output = data_dir / f"{safe_name}.json"
+    plan.save(output)
+
+    return plan, f"Fetched {len(tracks)} tracks → {output}"
+
+
+def _run_classify(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.classifier import classify_tracks, consolidate_small_buckets
+
+    classify_tracks(plan.tracks, buckets=profile.buckets, fallback=profile.fallback)
+    consolidate_small_buckets(plan.tracks, min_size=3, fallback=profile.fallback)
+
+    buckets = plan.bucket_summary()
+    summary_parts = [f"{name}: {len(tracks)}" for name, tracks in buckets.items()]
+    return plan, f"Classified into {len(buckets)} buckets ({', '.join(summary_parts)})"
+
+
+def _run_enrich(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.musicbrainz_client import enrich_tracks_genres
+
+    missing = sum(1 for t in plan.tracks if not t.artist_genres and t.isrc)
+    if not missing:
+        return plan, "All tracks already have genre data"
+
+    console.print(f"Querying MusicBrainz for {missing} tracks (~{missing}s)...")
+
+    def _progress(i, total, track, genres, mb_year=None):
+        tag = f" → {', '.join(genres[:3])}" if genres else ""
+        console.print(f"  [{i}/{total}] {track.display_name()}{tag}")
+
+    enriched = enrich_tracks_genres(plan.tracks, progress_callback=_progress)
+    return plan, f"Enriched {enriched} of {missing} tracks"
+
+
+def _run_review(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    low = sum(1 for t in plan.tracks if t.confidence == "low")
+    med = sum(1 for t in plan.tracks if t.confidence == "medium")
+    high = sum(1 for t in plan.tracks if t.confidence == "high")
+
+    table = Table(title="Classification Confidence")
+    table.add_column("Level", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("High", f"[green]{high}[/green]")
+    table.add_row("Medium", f"[yellow]{med}[/yellow]")
+    table.add_row("Low", f"[red]{low}[/red]")
+    console.print(table)
+
+    return plan, f"{high} high, {med} medium, {low} low confidence"
+
+
+def _run_scan(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.local_scanner import scan_directory
+
+    directory = Path(inputs["music_directory"])
+    console.print(f"Scanning [cyan]{directory}[/cyan]...")
+
+    def _progress(new, skip, path):
+        name = path.name if path else "done"
+        console.print(f"  [green]+{new}[/green], [dim]{skip} skipped[/dim] — {name}")
+
+    conn, new_count, skipped, _ = scan_directory(directory, incremental=True, progress_callback=_progress)
+    conn.close()
+
+    return plan, f"Indexed {new_count} new files, {skipped} skipped"
+
+
+def _run_import_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.bulk_import import import_tracks
+    from cratekeeper.classifier import classify_tracks
+
+    source_path = Path(inputs["music_directory"])
+    tracks = import_tracks(source_path)
+    classify_tracks(tracks, buckets=profile.buckets, fallback=profile.fallback)
+
+    plan = LibraryImportPlan(
+        source_playlist_id=f"import:{source_path}",
+        source_playlist_name=source_path.name or str(source_path),
+        tracks=tracks,
+    )
+
+    data_dir = profile.data_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = (source_path.name or "import").lower().replace(" ", "-").replace("/", "-")[:50]
+    output = data_dir / f"{safe_name}.json"
+    plan.save(output)
+
+    return plan, f"Imported {len(tracks)} tracks → {output}"
+
+
+def _run_match(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.matcher import match_tracks
+
+    console.print(f"Matching {len(plan.tracks)} tracks against local library...")
+
+    def _progress(i, total, track, result):
+        if result.local_path:
+            console.print(f"  [{i}/{total}] {track.display_name()} → [green]{result.method}[/green]")
+
+    results = match_tracks(plan.tracks, fuzzy_threshold=85, progress_callback=_progress)
+
+    matched = sum(1 for r in results if r.method != "none")
+    missing = sum(1 for r in results if r.method == "none")
+    return plan, f"Matched {matched}, missing {missing}"
+
+
+def _run_analyze_mood(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.mood_analyzer import analyze_tracks
+
+    with_path = sum(1 for t in plan.tracks if t.local_path)
+    console.print(f"Analyzing {with_path} tracks with essentia...")
+
+    def _progress(i, total, track, mood, error):
+        if error:
+            console.print(f"  [{i}/{total}] {track.display_name()} → [red]{error}[/red]")
+        elif track.bpm:
+            console.print(f"  [{i}/{total}] {track.display_name()} → {track.bpm} BPM, {track.key}")
+
+    analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=False)
+    return plan, f"Analyzed {analyzed} of {with_path} tracks"
+
+
+def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.tag_writer import VALID_CROWD, VALID_ENERGY, VALID_FUNCTION, VALID_MOOD
+
+    tags_file = Path(inputs["tags_file"])
+    tags_data = _json.loads(tags_file.read_text())
+
+    if not isinstance(tags_data, list):
+        return plan, "ERROR: Tags file must contain a JSON array"
+
+    track_map = {t.id: t for t in plan.tracks}
+    applied = 0
+
+    for entry in tags_data:
+        tid = entry.get("id")
+        track = track_map.get(tid)
+        if not track:
+            continue
+
+        energy = entry.get("energy")
+        if energy and energy in VALID_ENERGY:
+            track.energy = energy
+
+        funcs = entry.get("function", [])
+        track.function = [f for f in funcs if f in VALID_FUNCTION]
+
+        crowd = entry.get("crowd", [])
+        track.crowd = [c for c in crowd if c in VALID_CROWD]
+
+        mood_tags = entry.get("mood_tags", [])
+        track.mood_tags = [m for m in mood_tags if m in VALID_MOOD]
+
+        genre = entry.get("genre_suggestion")
+        if genre and genre != track.bucket:
+            track.bucket = genre
+
+        applied += 1
+
+    return plan, f"Applied tags to {applied} of {len(tags_data)} tracks"
+
+
+def _run_tag(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.tag_writer import tag_tracks
+
+    def _progress(i, total, track, ok):
+        if i % 20 == 0 or i == total or not ok:
+            status = "[green]ok[/green]" if ok else "[red]failed[/red]"
+            console.print(f"  [{i}/{total}] {track.display_name()} → {status}")
+
+    success, failed = tag_tracks(plan.tracks, progress_callback=_progress, tag_format=profile.tag_format)
+    return plan, f"Tagged {success}, {failed} failed"
+
+
+def _run_review_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.review_library import candidate_tracks, is_admission_complete, undecided_candidates
+
+    if not sys.stdin.isatty():
+        return plan, "ERROR: review-library requires an interactive terminal"
+
+    candidates = candidate_tracks(plan.tracks)
+    pending = undecided_candidates(plan.tracks)
+    required_fields = profile.required_fields
+
+    if not pending:
+        approved = sum(1 for t in candidates if t.library_approval == "approved")
+        return plan, f"All {len(candidates)} candidates already reviewed ({approved} approved)"
+
+    console.print(
+        f"[cyan]{len(pending)}[/cyan] tracks to review. "
+        "[bold]a[/bold]=approve  [bold]r[/bold]=reject  [bold]s[/bold]=skip  [bold]q[/bold]=quit"
+    )
+
+    for idx, track in enumerate(pending, 1):
+        info_lines = [f"[bold]{track.display_name()}[/bold]"]
+        info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan]   Year: {track.release_year or '?'}")
+        if track.bpm or track.key:
+            info_lines.append(f"BPM: {track.bpm or '?'}   Key: {track.key or '?'}")
+        if is_admission_complete(track, required_fields):
+            info_lines.append("[green]Fully tagged[/green]")
+        else:
+            info_lines.append(f"[yellow]Needs: {', '.join(required_fields)}[/yellow]")
+        console.print(Panel("\n".join(info_lines), title=f"[{idx}/{len(pending)}]"))
+
+        while True:
+            try:
+                raw = input("  a=approve  r=reject  s=skip  q=quit > ").strip().lower()
+            except EOFError:
+                approved = sum(1 for t in candidates if t.library_approval == "approved")
+                return plan, f"Stdin closed. {approved} approved so far"
+            if not raw:
+                continue
+            key = raw[0]
+            if key == "a":
+                track.library_approval = "approved"
+                console.print("  [green]Approved[/green]")
+                break
+            elif key == "r":
+                track.library_approval = "rejected"
+                console.print("  [red]Rejected[/red]")
+                break
+            elif key == "s":
+                console.print("  [dim]Skipped[/dim]")
+                break
+            elif key == "q":
+                approved = sum(1 for t in candidates if t.library_approval == "approved")
+                return plan, f"Quit early. {approved} approved so far"
+            else:
+                console.print("  [yellow]Invalid key[/yellow]")
+
+    approved = sum(1 for t in candidates if t.library_approval == "approved")
+    return plan, f"Reviewed {len(pending)} tracks. {approved} total approved"
+
+
+def _run_build_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.library_builder import build_library
+
+    target = Path(inputs.get("library_target", "")) if inputs.get("library_target") else profile.library_target
+
+    def _progress(i, total, track, dest_path):
+        if i % 20 == 0 or i == total:
+            console.print(f"  [{i}/{total}] {track.display_name()}")
+
+    result = build_library(
+        plan.tracks, target, progress_callback=_progress,
+        required_fields=profile.required_fields, sort=profile.sort,
+    )
+    return plan, f"Copied {result.copied}, {result.already_existed} existed, {result.missing_tags} excluded"
+
+
+def _run_build_event(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.event_builder import build_event_folder
+
+    output = Path(inputs["output_path"])
+
+    def _progress(i, total, track, target_path):
+        if i % 20 == 0 or i == total:
+            console.print(f"  [{i}/{total}] {track.display_name()}")
+
+    result = build_event_folder(
+        plan.tracks, output, progress_callback=_progress,
+        required_fields=profile.required_fields, tag_format=profile.tag_format,
+    )
+    return plan, f"Copied {result.copied} to {output}"
+
+
+def _run_create_playlists(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.spotify_client import add_tracks_to_playlist, create_playlist, get_spotify_client
+
+    if not isinstance(plan, EventPlan):
+        return plan, "Skipped — not an event plan"
+
+    sp = get_spotify_client()
+    event = inputs["event_name"]
+    date = inputs["event_date"]
+    plan.event_name = event
+    plan.event_date = date
+
+    buckets = plan.bucket_summary()
+    created = 0
+    for bucket_name, bucket_tracks in buckets.items():
+        if bucket_name == "Unclassified":
+            continue
+        playlist_name = f"{event} — {bucket_name}"
+        description = f"{event} — {date} — {bucket_name}"
+        playlist_id = create_playlist(sp, playlist_name, description)
+        add_tracks_to_playlist(sp, playlist_id, [t.id for t in bucket_tracks])
+        plan.created_playlists[bucket_name] = playlist_id
+        created += 1
+        console.print(f"  {playlist_name} — {len(bucket_tracks)} tracks")
+
+    return plan, f"Created {created} Spotify playlists"
+
+
+def _run_sync_tidal(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.tidal_client import add_tracks_by_isrc, create_playlist, get_tidal_session
+
+    if not isinstance(plan, EventPlan):
+        return plan, "Skipped — not an event plan"
+
+    session = get_tidal_session()
+    event_prefix = plan.event_name or plan.source_playlist_name
+    buckets = plan.bucket_summary()
+    total_added = 0
+
+    for bucket_name, bucket_tracks in buckets.items():
+        if bucket_name == "Unclassified":
+            continue
+        isrcs = [t.isrc for t in bucket_tracks if t.isrc]
+        if not isrcs:
+            continue
+        playlist_name = f"{event_prefix} — {bucket_name}"
+        tidal_id = create_playlist(session, playlist_name)
+        added, _ = add_tracks_by_isrc(session, tidal_id, isrcs)
+        plan.tidal_playlists[bucket_name] = tidal_id
+        total_added += len(added)
+        console.print(f"  {playlist_name} — {len(added)}/{len(isrcs)} matched")
+
+    return plan, f"Synced {total_added} tracks to Tidal"
+
+
+def _run_export_rekordbox(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.rekordbox_export import export_rekordbox
+
+    library_dir = profile.library_target
+    out_path = Path(library_dir) / "rekordbox.xml"
+
+    track_count, bucket_count = export_rekordbox(library_dir, out_path, sort=profile.sort)
+    return plan, f"Exported {track_count} tracks, {bucket_count} playlists → {out_path}"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline definitions
+# ---------------------------------------------------------------------------
+
+EVENT_PIPELINE: list[Step] = [
+    Step(id="fetch", label="Fetch Spotify playlist", required=True,
+         needs_input=["playlist_url"], run=_run_fetch, is_complete=_fetch_complete),
+    Step(id="classify", label="Classify into genre buckets", required=True,
+         run=_run_classify, is_complete=_classify_complete),
+    Step(id="enrich", label="Enrich genres via MusicBrainz", required=False,
+         run=_run_enrich, is_complete=_enrich_complete),
+    Step(id="review", label="Review low-confidence classifications", required=False,
+         run=_run_review, is_complete=lambda _: False),
+    Step(id="match", label="Match tracks to local audio files", required=True,
+         run=_run_match, is_complete=_match_complete),
+    Step(id="analyze-mood", label="Analyze audio features (essentia)", required=True,
+         needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
+    Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
+         needs_input=["tags_file"], run=_run_apply_tags, is_complete=_apply_tags_complete),
+    Step(id="tag", label="Write tags into audio files", required=True,
+         run=_run_tag, is_complete=_tag_complete),
+    Step(id="create-playlists", label="Create Spotify sub-playlists", required=False,
+         needs_input=["event_name", "event_date"], run=_run_create_playlists,
+         is_complete=_create_playlists_complete),
+    Step(id="sync-to-tidal", label="Sync playlists to Tidal", required=False,
+         run=_run_sync_tidal, is_complete=_sync_tidal_complete),
+    Step(id="build-event", label="Build event folder", required=True,
+         needs_input=["output_path"], run=_run_build_event, is_complete=_build_event_complete),
+]
+
+LIBRARY_PIPELINE: list[Step] = [
+    Step(id="scan", label="Scan local music directory", required=True,
+         needs_input=["music_directory"], run=_run_scan, is_complete=_scan_complete),
+    Step(id="import-library", label="Import scanned files into profile", required=True,
+         needs_input=["music_directory"], run=_run_import_library, is_complete=_import_library_complete),
+    Step(id="classify", label="Classify into genre buckets", required=True,
+         run=_run_classify, is_complete=_classify_complete),
+    Step(id="enrich", label="Enrich genres via MusicBrainz", required=False,
+         run=_run_enrich, is_complete=_enrich_complete),
+    Step(id="match", label="Match tracks to local audio files", required=True,
+         run=_run_match, is_complete=_match_complete),
+    Step(id="analyze-mood", label="Analyze audio features (essentia)", required=True,
+         needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
+    Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
+         needs_input=["tags_file"], run=_run_apply_tags, is_complete=_apply_tags_complete),
+    Step(id="tag", label="Write tags into audio files", required=True,
+         run=_run_tag, is_complete=_tag_complete),
+    Step(id="review-library", label="Review tracks for master library", required=True,
+         run=_run_review_library, is_complete=_review_library_complete),
+    Step(id="build-library", label="Build master library", required=True,
+         needs_input=["library_target"], run=_run_build_library, is_complete=_build_library_complete),
+    Step(id="export-rekordbox", label="Export Rekordbox XML", required=False,
+         run=_run_export_rekordbox, is_complete=_export_rekordbox_complete),
+]
+
+
+# ---------------------------------------------------------------------------
+# Progress detector
+# ---------------------------------------------------------------------------
+
+def detect_resume_index(pipeline: list[Step], plan: Plan) -> int:
+    """Return the index of the first incomplete step, or len(pipeline) if all done."""
+    for i, step in enumerate(pipeline):
+        if not step.is_complete(plan):
+            return i
+    return len(pipeline)
+
+
+# ---------------------------------------------------------------------------
+# Input collection
+# ---------------------------------------------------------------------------
+
+INPUT_PROMPTS: dict[str, str] = {
+    "playlist_url": "Spotify playlist URL",
+    "music_directory": "Local music directory path",
+    "output_path": "Event output directory",
+    "tags_file": "Path to tags JSON file",
+    "event_name": "Event name (e.g. 'Wedding Tim & Lea')",
+    "event_date": "Event date (e.g. '2026-06-15')",
+    "library_target": "Library target directory (leave blank for profile default)",
+}
+
+
+def collect_inputs(step: Step, collected: dict[str, str]) -> dict[str, str]:
+    """Prompt for any inputs this step needs that haven't been collected yet."""
+    for key in step.needs_input:
+        if key not in collected or not collected[key]:
+            prompt_text = INPUT_PROMPTS.get(key, key)
+            value = Prompt.ask(f"  {prompt_text}")
+            collected[key] = value
+    return {k: collected[k] for k in step.needs_input if k in collected}
+
+
+# ---------------------------------------------------------------------------
+# Main wizard flow
+# ---------------------------------------------------------------------------
+
+def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
+    """Run the interactive wizard."""
+    console.print(Panel("[bold]Cratekeeper Wizard[/bold]\nGuided pipeline — step by step", style="cyan"))
+
+    # Pipeline selection
+    pipeline_choice = Prompt.ask(
+        "Which pipeline?",
+        choices=["event", "library"],
+        default="event",
+    )
+
+    if pipeline_choice == "library":
+        pipeline = LIBRARY_PIPELINE
+        console.print(f"\n[cyan]Library-import pipeline[/cyan] — {len(pipeline)} steps")
+    else:
+        pipeline = EVENT_PIPELINE
+        console.print(f"\n[cyan]Event pipeline[/cyan] — {len(pipeline)} steps")
+
+    # Show steps overview
+    for i, step in enumerate(pipeline, 1):
+        req = "[green]required[/green]" if step.required else "[dim]optional[/dim]"
+        console.print(f"  {i:2}. {step.label} ({req})")
+    console.print()
+
+    # Resume detection
+    plan: Plan | None = None
+    start_index = 0
+
+    if plan_path and plan_path.exists():
+        plan = Plan.load(plan_path)
+        start_index = detect_resume_index(pipeline, plan)
+        if start_index >= len(pipeline):
+            console.print("[green]All steps already complete![/green]")
+            return
+        if start_index > 0:
+            console.print(
+                f"[yellow]Detected progress:[/yellow] {start_index}/{len(pipeline)} steps complete. "
+                f"Resuming from step {start_index + 1}: [cyan]{pipeline[start_index].label}[/cyan]"
+            )
+            if not Confirm.ask("Resume from here?", default=True):
+                start_index = 0
+                console.print("Starting from the beginning.")
+
+    # Shared input state
+    collected_inputs: dict[str, str] = {}
+
+    # Track outcomes for summary
+    outcomes: list[tuple[str, str, str]] = []  # (step_label, status, detail)
+
+    # Mark completed steps
+    for i in range(start_index):
+        outcomes.append((pipeline[i].label, "skipped", "already complete"))
+
+    # Step loop
+    for i in range(start_index, len(pipeline)):
+        step = pipeline[i]
+
+        console.print(Panel(
+            f"[bold]Step {i + 1}/{len(pipeline)}:[/bold] {step.label}"
+            + (" [dim](optional)[/dim]" if not step.required else ""),
+            style="blue",
+        ))
+
+        # Optional step — offer skip
+        if not step.required:
+            if not Confirm.ask("Run this step?", default=True):
+                console.print("  [dim]Skipped[/dim]")
+                outcomes.append((step.label, "skipped", "user skipped"))
+                continue
+
+        # Collect inputs
+        step_inputs = collect_inputs(step, collected_inputs)
+
+        # Execute
+        try:
+            plan, detail = step.run(plan=plan, profile=profile, inputs=step_inputs)
+
+            # Save after each step if we have a plan and a path
+            if plan is not None:
+                save_path = plan_path
+                if save_path is None:
+                    # Derive path from profile data_dir
+                    data_dir = profile.data_dir
+                    data_dir.mkdir(parents=True, exist_ok=True)
+                    safe_name = plan.source_playlist_name.lower().replace(" ", "-").replace("/", "-")[:50]
+                    save_path = data_dir / f"{safe_name}.json"
+                    plan_path = save_path
+                plan.save(save_path)
+
+            console.print(f"  [green]Done:[/green] {detail}")
+            outcomes.append((step.label, "done", detail))
+
+        except Exception as exc:
+            console.print(f"  [red]Error:[/red] {exc}")
+            outcomes.append((step.label, "error", str(exc)))
+            # Save progress on error
+            if plan is not None and plan_path is not None:
+                plan.save(plan_path)
+                console.print(f"  [dim]Progress saved to {plan_path}[/dim]")
+            raise
+
+        # Continue prompt (unless last step)
+        if i < len(pipeline) - 1:
+            if not Confirm.ask("Continue to next step?", default=True):
+                if plan is not None and plan_path is not None:
+                    plan.save(plan_path)
+                console.print(f"\n[yellow]Paused.[/yellow] Resume with: ./crate wizard --plan {plan_path}")
+                _print_summary(outcomes)
+                return
+
+    # Completion summary
+    console.print()
+    _print_summary(outcomes)
+
+    if plan_path:
+        console.print(f"\nPlan saved to [green]{plan_path}[/green]")
+
+
+def _print_summary(outcomes: list[tuple[str, str, str]]) -> None:
+    """Print a summary table of all steps and their outcomes."""
+    table = Table(title="Wizard Summary")
+    table.add_column("Step", style="cyan")
+    table.add_column("Status")
+    table.add_column("Detail", style="dim")
+
+    for label, status, detail in outcomes:
+        if status == "done":
+            status_str = "[green]done[/green]"
+        elif status == "skipped":
+            status_str = "[dim]skipped[/dim]"
+        elif status == "error":
+            status_str = "[red]error[/red]"
+        else:
+            status_str = status
+        table.add_row(label, status_str, detail)
+
+    console.print(table)

@@ -1223,5 +1223,16 @@ def profile_init() -> None:
     )
 
 
+@app.command()
+def wizard(
+    ctx: typer.Context,
+    plan: Path = typer.Option(None, "--plan", help="Existing plan file to resume from"),
+) -> None:
+    """Interactive wizard — guides you through the full pipeline step by step."""
+    from cratekeeper.wizard import run_wizard
+
+    run_wizard(profile=ctx.obj, plan_path=plan)
+
+
 if __name__ == "__main__":
     app()
