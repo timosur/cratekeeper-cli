@@ -16,13 +16,13 @@ services:
       retries: 10
 
   crate:
-    build: ./cratekeeper-cli
+    build: .
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./data:/data
-      - ./cratekeeper-cli/cratekeeper:/app/cratekeeper
+      - ./cratekeeper:/app/cratekeeper
       - ./spotify-mcp/spotify-config.json:/app/../spotify-mcp/spotify-config.json
       - /Volumes/home/Music:/music:ro
       - ~/Music/Library:/library

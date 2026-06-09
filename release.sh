@@ -8,7 +8,7 @@
 #   ./release.sh major         # 1.0.0 → 2.0.0
 set -euo pipefail
 
-PYPROJECT="cratekeeper-cli/pyproject.toml"
+PYPROJECT="pyproject.toml"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

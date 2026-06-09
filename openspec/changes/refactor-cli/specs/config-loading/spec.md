@@ -1,6 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Genre buckets loaded from YAML
+Rule: System MUST satisfy this requirement.
 Feature: Genre bucket configuration loaded from YAML data file
 Rule: Genre bucket definitions are read from `cratekeeper/data/genre_buckets.yaml` at import time; no genre bucket data is hardcoded in Python source.
 
@@ -21,6 +22,7 @@ Rule: Genre bucket definitions are read from `cratekeeper/data/genre_buckets.yam
 - **THEN** the file is accessible without referencing a filesystem path
 
 ### Requirement: Mood config loaded from YAML
+Rule: System MUST satisfy this requirement.
 Feature: Mood analysis configuration loaded from YAML data file
 Rule: Mood model parameters and thresholds are read from `cratekeeper/data/mood_config.yaml` at import time; no mood config data is hardcoded in Python source.
 
@@ -36,6 +38,7 @@ Rule: Mood model parameters and thresholds are read from `cratekeeper/data/mood_
 - **THEN** a `FileNotFoundError` or `PackageDataError` is raised with a message identifying the missing file
 
 ### Requirement: Config data is cached after first load
+Rule: System MUST satisfy this requirement.
 Rule: YAML data files are parsed once per process; repeated imports do not re-read the file.
 
 #### Scenario: Genre buckets parsed only once per process

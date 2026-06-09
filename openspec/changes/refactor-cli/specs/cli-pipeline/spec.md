@@ -1,6 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: CLI command handlers contain no inline business logic
+Rule: System MUST satisfy this requirement.
 Feature: Thin CLI command handlers
 Rule: Each `crate` command handler in `cli.py` delegates to a domain module function; file I/O, API calls, and data transformation are not performed inline in the command body.
 
@@ -16,6 +17,7 @@ Rule: Each `crate` command handler in `cli.py` delegates to a domain module func
 - **THEN** it returns a result without requiring a Typer context or CLI invocation
 
 ### Requirement: Wizard delegates to CLI handlers via context invoke
+Rule: System MUST satisfy this requirement.
 Feature: Wizard re-uses CLI handlers
 Rule: `wizard.py` calls each pipeline step by invoking the corresponding Typer command function via `ctx.invoke`; it does not re-implement pipeline logic.
 
@@ -38,6 +40,7 @@ Rule: `wizard.py` calls each pipeline step by invoking the corresponding Typer c
 - **AND** the wizard does not swallow or re-format the error
 
 ### Requirement: Public CLI surface is unchanged
+Rule: System MUST satisfy this requirement.
 Rule: All `crate` command names, arguments, and flags remain identical after the refactor.
 
 #### Scenario: All existing commands are still available

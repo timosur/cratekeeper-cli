@@ -1,6 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: TrackRepository protocol
+Rule: System MUST satisfy this requirement.
 Feature: TrackRepository protocol
 Rule: All local track persistence operations go through a TrackRepository implementation; no domain code calls psycopg2 directly.
 
@@ -37,6 +38,7 @@ Rule: All local track persistence operations go through a TrackRepository implem
 - **THEN** a list of all N `LocalTrack` objects is returned
 
 ### Requirement: PostgreSQL repository implementation
+Rule: System MUST satisfy this requirement.
 Rule: `PostgresTrackRepository` satisfies the `TrackRepository` protocol using psycopg2.
 
 #### Scenario: PostgresTrackRepository connects via environment variable
@@ -50,6 +52,7 @@ Rule: `PostgresTrackRepository` satisfies the `TrackRepository` protocol using p
 - **THEN** a clear `ConfigurationError` is raised identifying the missing variable
 
 ### Requirement: In-memory repository for testing
+Rule: System MUST satisfy this requirement.
 Rule: `InMemoryTrackRepository` satisfies the `TrackRepository` protocol using a dict; no database connection required.
 
 #### Scenario: InMemoryTrackRepository persists and retrieves tracks without a database
@@ -59,6 +62,7 @@ Rule: `InMemoryTrackRepository` satisfies the `TrackRepository` protocol using a
 - **AND** no database connection was made
 
 ### Requirement: CLI injects repository into domain functions
+Rule: System MUST satisfy this requirement.
 Rule: `cli.py` constructs the repository and passes it to scanner and matcher functions; scanner and matcher do not instantiate repositories themselves.
 
 #### Scenario: scan command uses PostgresTrackRepository by default
