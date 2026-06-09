@@ -7,19 +7,26 @@ Classifies tracks into one of 18 genre buckets using a rule-based, specificity-o
 ## Requirements
 
 ### Requirement: Classify tracks into genre buckets
-The system SHALL assign each track in an event plan to exactly one of 18 genre buckets based on its enriched genre tags, using word-boundary matching with a first-match-wins specificity ordering.
+The system SHALL assign each track in a plan to exactly one genre bucket drawn from the active profile's bucket set, using word-boundary matching with a first-match-wins specificity ordering. The bucket set SHALL come from the active profile — either a named preset (`commercial` or `electronic`) or an inline custom list — instead of a single hardcoded default, and the fallback bucket SHALL be the one defined by that profile.
 
-#### Scenario: Successful classification
+#### Scenario: Successful classification with active profile buckets
+- **GIVEN** the active profile resolves to a specific bucket set and fallback
 - **WHEN** the DJ runs `crate classify` on an enriched plan
-- **THEN** each track with genre tags is assigned to the most specific matching genre bucket and the result is persisted in the plan JSON
+- **THEN** each track with genre tags is assigned to the most specific matching bucket from the active profile's set and the result is persisted in the plan JSON
 
 #### Scenario: Genre bucket ordering
-- **WHEN** multiple genre buckets could match a track's tags
-- **THEN** the system selects the first match in specificity order (electronic sub-genres before general genres, Pop as the fallback bucket)
+- **WHEN** multiple buckets in the active profile's set could match a track's tags
+- **THEN** the system selects the first match in the profile's specificity order
 
-#### Scenario: No genre match
+#### Scenario: Commercial preset fallback
+- **GIVEN** the active profile uses the `commercial` preset
 - **WHEN** a track has no enriched genre tags or none match any bucket keyword
-- **THEN** the track is assigned to the Pop fallback bucket
+- **THEN** the track is assigned the `Pop` fallback bucket
+
+#### Scenario: Electronic preset fallback
+- **GIVEN** the active profile uses the `electronic` preset
+- **WHEN** a track has no enriched genre tags or none match any bucket keyword
+- **THEN** the track is assigned the `House` fallback bucket, and commercial-only buckets such as Schlager, Pop, Rock, and Latin are not present in the bucket set
 
 ### Requirement: Review low-confidence classifications
 The system SHALL allow the DJ to review and override tracks whose classification confidence is low.
@@ -31,3 +38,11 @@ The system SHALL allow the DJ to review and override tracks whose classification
 #### Scenario: Small-bucket consolidation
 - **WHEN** a genre bucket contains very few tracks after classification
 - **THEN** the system flags those tracks for review as low-confidence candidates
+
+### Requirement: Electronic genre bucket preset
+The system SHALL provide an `electronic` bucket preset offering finer electronic sub-genre granularity than the commercial preset, excluding commercial genres and using House as its fallback bucket.
+
+#### Scenario: Select the electronic preset
+- **GIVEN** a profile sets `buckets = "electronic"`
+- **WHEN** the system resolves that profile's buckets
+- **THEN** the resolved set contains electronic sub-genre buckets with `House` as the fallback and contains no Schlager, Pop, Rock, or Latin buckets

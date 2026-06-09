@@ -7,19 +7,19 @@ Fetches tracks from a Spotify playlist and enriches them with genre and release-
 ## Requirements
 
 ### Requirement: Fetch Spotify playlist to JSON plan
-The system SHALL fetch all tracks from a Spotify playlist URL and persist them as a structured JSON plan at `data/<plan>.json`. The plan type (event or library-import) is determined by an interactive prompt or defaults to event for non-interactive sessions.
+The system SHALL fetch all tracks from a Spotify playlist URL and persist them as a structured JSON plan under the active profile's `data_dir` (e.g. `<profile-data_dir>/<plan>.json`) instead of the shared `data/` directory. The plan type (event or library-import) is determined by an interactive prompt or defaults to event for non-interactive sessions.
 
 #### Scenario: Fetch a valid playlist as event
 - **GIVEN** stdin is an interactive terminal
 - **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
 - **AND** selects "event" at the plan-type prompt
-- **THEN** the system creates a JSON file with `plan_type` of `event` containing every track from the playlist with name, artists, album, ISRC, Spotify URI, and duration
+- **THEN** the system creates a JSON file under the active profile's `data_dir` with `plan_type` of `event` containing every track from the playlist with name, artists, album, ISRC, Spotify URI, and duration
 
 #### Scenario: Fetch a valid playlist as library import
 - **GIVEN** stdin is an interactive terminal
 - **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
 - **AND** selects "library import" at the plan-type prompt
-- **THEN** the system creates a JSON file with `plan_type` of `library-import` containing every track from the playlist
+- **THEN** the system creates a JSON file under the active profile's `data_dir` with `plan_type` of `library-import` containing every track from the playlist
 
 #### Scenario: Reuse cached Spotify token
 - **WHEN** a valid Spotify token exists in `spotify-config.json`
@@ -32,7 +32,7 @@ The system SHALL fetch all tracks from a Spotify playlist URL and persist them a
 #### Scenario: Non-interactive fetch defaults to event
 - **GIVEN** stdin is not an interactive terminal
 - **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
-- **THEN** the system creates an event plan without prompting
+- **THEN** the system creates an event plan under the active profile's `data_dir` without prompting
 
 ### Requirement: Enrich genres and release years via MusicBrainz
 The system SHALL enrich each track in a plan with genre tags and release years by looking up ISRCs on MusicBrainz. This works identically for both event and library-import plans.
