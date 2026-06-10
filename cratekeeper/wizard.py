@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import questionary
+from questionary import Choice
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -17,6 +19,45 @@ from rich.table import Table
 from cratekeeper.models import EventPlan, LibraryImportPlan, Plan
 
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Interactive prompt helpers (arrow-key menus with non-TTY fallback)
+# ---------------------------------------------------------------------------
+
+def _interactive() -> bool:
+    """True when both stdin and stdout are attached to a real terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def select(message: str, choices: list[Choice], default: str | None = None) -> str:
+    """Single-select arrow-key menu.
+
+    Falls back to a typed Rich prompt when not running on a TTY (e.g. piped
+    input, CI, or tests) so the wizard remains scriptable.
+    """
+    if _interactive():
+        answer = questionary.select(
+            message,
+            choices=choices,
+            default=default,
+            instruction="(use ↑/↓ arrows, Enter to confirm)",
+        ).ask()
+        if answer is None:  # user pressed Ctrl-C / Esc
+            raise KeyboardInterrupt
+        return answer
+    values = [c.value for c in choices]
+    return Prompt.ask(message, choices=values, default=default)
+
+
+def confirm(message: str, default: bool = True) -> bool:
+    """Yes/no arrow-key confirmation with non-TTY fallback to a Rich prompt."""
+    if _interactive():
+        answer = questionary.confirm(message, default=default).ask()
+        if answer is None:  # user pressed Ctrl-C / Esc
+            raise KeyboardInterrupt
+        return answer
+    return Confirm.ask(message, default=default)
 
 
 # ---------------------------------------------------------------------------
@@ -559,9 +600,18 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
     console.print(Panel("[bold]Cratekeeper Wizard[/bold]\nGuided pipeline — step by step", style="cyan"))
 
     # Pipeline selection
-    pipeline_choice = Prompt.ask(
+    pipeline_choice = select(
         "Which pipeline?",
-        choices=["event", "library"],
+        choices=[
+            Choice(
+                title="Event — Spotify/Tidal playlist → DJ-ready event folder",
+                value="event",
+            ),
+            Choice(
+                title="Library — import local music into your master library",
+                value="library",
+            ),
+        ],
         default="event",
     )
 
@@ -593,7 +643,7 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
                 f"[yellow]Detected progress:[/yellow] {start_index}/{len(pipeline)} steps complete. "
                 f"Resuming from step {start_index + 1}: [cyan]{pipeline[start_index].label}[/cyan]"
             )
-            if not Confirm.ask("Resume from here?", default=True):
+            if not confirm("Resume from here?", default=True):
                 start_index = 0
                 console.print("Starting from the beginning.")
 
@@ -619,7 +669,7 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
 
         # Optional step — offer skip
         if not step.required:
-            if not Confirm.ask("Run this step?", default=True):
+            if not confirm("Run this step?", default=True):
                 console.print("  [dim]Skipped[/dim]")
                 outcomes.append((step.label, "skipped", "user skipped"))
                 continue
@@ -653,7 +703,7 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
 
         # Continue prompt (unless last step)
         if i < len(pipeline) - 1:
-            if not Confirm.ask("Continue to next step?", default=True):
+            if not confirm("Continue to next step?", default=True):
                 if plan is not None and plan_path is not None:
                     plan.save(plan_path)
                 console.print(f"\n[yellow]Paused.[/yellow] Resume with: ./crate wizard --plan {plan_path}")

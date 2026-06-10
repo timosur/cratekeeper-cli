@@ -52,26 +52,30 @@ presets:
     fallback: Unclassified
     buckets:
       - name: Drum & Bass
-        genre_tags: [drum and bass, jungle, liquid dnb, liquid funk, dnb, neurofunk]
-      - name: Hardstyle / Hardcore
-        genre_tags: [hardstyle, hardcore, gabber, rawstyle, hard dance]
-      - name: Dubstep / Bass
+        genre_tags: [drum and bass, jungle, liquid dnb, dnb]
+      - name: Hardstyle
+        genre_tags: [hardstyle, hard dance]
+      - name: Dubstep
         genre_tags: [dubstep, bass music, future bass, riddim, trap]
       - name: Melodic Techno
-        genre_tags: [melodic techno, melodictechno, melodic house, indie dance]
+        genre_tags: [melodic techno, melodictechno]
       - name: Techno
         genre_tags: [techno, hard techno, hardtechno, hypertechno, industrial techno, peak time techno]
-      - name: Minimal / Tech House
+      - name: Tech House
         genre_tags: [minimal techno, tech house, techhouse, minimal]
       - name: Deep House
         genre_tags: [deep house, deephouse, organic house, tropical house, afro house]
-      - name: Progressive House
-        genre_tags: [progressive house, progressivehouse, progressive trance]
       - name: Trance
-        genre_tags: [trance, psytrance, uplifting trance, goa, goatrance]
-      - name: EDM / Big Room
+        genre_tags: [trance, uplifting trance, vocal trance, progressive trance]
+      - name: EDM
         genre_tags: [edm, big room, bigroom, electro, future house]
       - name: Disco / Nu Disco
         genre_tags: [nu disco, disco, italo disco, funk, boogie]
       - name: House
-        genre_tags: [house, electro house, electrohouse, funky house, uk garage, garage, dance]
+        genre_tags: [house, electro house, electrohouse, funky house, uk garage, garage]
+      - name: Dance
+        genre_tags: [dance, hands up, hard dance]
+      - name: Future Bass
+        genre_tags: [future bass]
+      - name: Melodic House
+        genre_tags: [melodic house, trance house, progressive house, progressivehouse]
