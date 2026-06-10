@@ -36,7 +36,7 @@ DB_USER     := dj
 DB_NAME     := djlib
 BACKUP_FILE := $(BACKUP_DIR)/$(DB_NAME)_$(shell date +%Y%m%d_%H%M%S).sql
 
-.PHONY: help venv install test lint format check db db-stop db-backup db-restore docker-build docker-run clean
+.PHONY: help venv install test lint format check db db-stop down db-backup db-restore docker-build docker-run clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -74,6 +74,8 @@ db: ## Start Postgres (docker compose)
 
 db-stop: ## Stop all docker compose services
 	docker compose down
+
+down: db-stop ## Alias for db-stop
 
 db-backup: ## Dump database to backups/<db>_<timestamp>.sql (db must be running)
 	@mkdir -p $(BACKUP_DIR)

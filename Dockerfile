@@ -1,16 +1,26 @@
-FROM --platform=linux/amd64 python:3.12-slim
+# syntax=docker/dockerfile:1
+# essentia-tensorflow requires Linux x86_64 — QEMU emulation is unavoidable on
+# Apple Silicon, but we minimise the pain by:
+#   - pinning to bookworm (stable) so ffmpeg does NOT pull in libllvm
+#   - using BuildKit cache mounts for apt and pip so reruns are fast
+FROM --platform=linux/amd64 python:3.11-slim-bookworm
 
 # System deps for audio processing and PostgreSQL client
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# BuildKit apt cache: the package lists are cached between builds.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         libpq-dev \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Essentia with TensorFlow predictors
-# Do not install plain "essentia" alongside this package because it can shadow
-# the TF-enabled wheel and remove TensorflowPredict* algorithms.
-RUN pip install --no-cache-dir essentia-tensorflow
+# Install Essentia with TensorFlow predictors.
+# BuildKit pip cache: the large TF wheels are cached — reruns skip the download.
+# Do not install plain "essentia" alongside this package because it shadows
+# the TF-enabled wheel and removes TensorflowPredict* algorithms.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install essentia-tensorflow
 
 ENV ESSENTIA_MODELS_DIR=/app/models
 
@@ -34,15 +44,16 @@ RUN mkdir -p "$ESSENTIA_MODELS_DIR" && \
 
 WORKDIR /app
 
-# Install cratekeeper dependencies first (cache layer)
+# Install cratekeeper dependencies first (separate layer — only invalidated when
+# pyproject.toml changes, not when source code changes).
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install .
 
-# Copy source code
+# Copy source and reinstall in editable mode so the container gets the CLI entry point.
 COPY cratekeeper/ cratekeeper/
-
-# Reinstall with source
-RUN pip install --no-cache-dir -e .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e .
 
 # Mount points for data and music library
 VOLUME ["/data", "/music"]
