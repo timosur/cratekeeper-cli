@@ -36,7 +36,7 @@ DB_USER     := dj
 DB_NAME     := djlib
 BACKUP_FILE := $(BACKUP_DIR)/$(DB_NAME)_$(shell date +%Y%m%d_%H%M%S).sql
 
-.PHONY: help venv install test lint format check db db-stop down db-backup db-restore docker-build docker-run clean
+.PHONY: help venv install test lint format check db db-stop down db-backup db-restore docker-build docker-run spotify-auth clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -94,11 +94,8 @@ db-restore: ## Restore from BACKUP=<file> (e.g. make db-restore BACKUP=backups/d
 	docker compose exec -T db psql -U $(DB_USER) -d $(DB_NAME) < $(BACKUP)
 	@echo "Done."
 
-docker-build: ## Build Docker image
-	docker compose build
-
-docker-run: ## Run crate CLI in Docker (pass ARGS="…")
-	docker compose run --rm crate $(ARGS)
+spotify-auth: ## Authenticate with Spotify (OAuth flow)
+	./crate spotify-auth
 
 clean: ## Remove .venv, caches, build artifacts
 	rm -rf $(VENV)

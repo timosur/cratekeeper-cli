@@ -47,6 +47,14 @@ def main(
         raise typer.Exit(1)
 
 
+@app.command("spotify-auth")
+def spotify_auth() -> None:
+    """Authenticate with Spotify — prompts for credentials and runs OAuth flow."""
+    from cratekeeper.spotify.auth import run_auth_flow
+
+    run_auth_flow()
+
+
 @app.command()
 def wizard(
     ctx: typer.Context,

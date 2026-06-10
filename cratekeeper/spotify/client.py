@@ -11,12 +11,9 @@ import spotipy
 
 from cratekeeper.models import Track
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-# Search order: project-local → XDG config → ~/.config fallback
+# Search order: XDG config → ~/.cratekeeper fallback
 _XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 _CONFIG_SEARCH_PATHS = [
-    _PROJECT_ROOT / "spotify-mcp" / "spotify-config.json",
     _XDG_CONFIG / "cratekeeper" / "spotify-config.json",
     Path.home() / ".cratekeeper" / "spotify-config.json",
 ]
@@ -29,8 +26,7 @@ def _find_config() -> Path:
     raise FileNotFoundError(
         "spotify-config.json not found. Checked:\n"
         + "\n".join(f"  {p}" for p in _CONFIG_SEARCH_PATHS)
-        + "\n\nRun `cd spotify-mcp && npm run auth` to authenticate, or copy "
-        "spotify-config.json to one of the above locations."
+        + "\n\nRun `crate spotify-auth` to authenticate."
     )
 
 
@@ -127,16 +123,18 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> tuple[str, l
                 except ValueError:
                     pass
 
-            tracks.append(Track(
-                id=track_data["id"],
-                name=track_data["name"],
-                artists=artists,
-                artist_ids=artist_ids,
-                album=track_data.get("album", {}).get("name", "Unknown"),
-                duration_ms=track_data.get("duration_ms", 0),
-                isrc=isrc,
-                release_year=release_year,
-            ))
+            tracks.append(
+                Track(
+                    id=track_data["id"],
+                    name=track_data["name"],
+                    artists=artists,
+                    artist_ids=artist_ids,
+                    album=track_data.get("album", {}).get("name", "Unknown"),
+                    duration_ms=track_data.get("duration_ms", 0),
+                    isrc=isrc,
+                    release_year=release_year,
+                )
+            )
 
         total = results.get("total", 0)
         offset += limit

@@ -34,7 +34,6 @@ cratekeeper/
 │   │   ├── musicbrainz_client.py  # MusicBrainz genre/year enrichment
 │   │   └── local_scanner.py   # PostgreSQL audio file indexer
 │   └── pyproject.toml
-├── spotify-mcp/           # Spotify MCP server (TypeScript)
 ├── tidal-mcp/             # Tidal MCP server (Python)
 ├── data/                  # Event JSON files
 └── docker-compose.yml
@@ -86,18 +85,19 @@ A `./crate` wrapper script at the repo root runs the CLI from the `.venv` withou
 | `make check` | Lint + test combined |
 | `make db` | Start Postgres via docker compose |
 | `make db-stop` | Stop docker compose services |
+| `make spotify-auth` | Authenticate with Spotify (OAuth flow) |
 | `make clean` | Remove `.venv`, caches, build artifacts |
 
-### 3. Setup Spotify MCP Server
+### 3. Setup Spotify
 
 ```bash
-cd spotify-mcp
-npm install
-cp spotify-config.example.json spotify-config.json
-# Edit spotify-config.json with your clientId and clientSecret
-npm run auth    # Opens browser for OAuth
-npm run build
+crate spotify-auth
+# or: make spotify-auth
 ```
+
+Prompts for your Spotify Developer App credentials (Client ID, Client Secret), opens the browser for OAuth authorization, and saves tokens to `~/.config/cratekeeper/spotify-config.json`.
+
+Create a Spotify Developer App at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). Set the redirect URI to `http://127.0.0.1:8888/callback`.
 
 ### 4. Setup Tidal MCP Server
 
@@ -109,17 +109,13 @@ pip install -e .
 python -m tidal_mcp.auth   # Prints a link — open it to log in
 ```
 
-### 5. Connect MCP Servers
+### 5. Connect MCP Servers (optional)
 
 Add to your MCP client config (VS Code Copilot, Claude Desktop, etc.):
 
 ```json
 {
   "mcpServers": {
-    "spotify": {
-      "command": "node",
-      "args": ["/absolute/path/to/spotify-mcp/build/index.js"]
-    },
     "tidal": {
       "command": "/absolute/path/to/tidal-mcp/.venv/bin/python",
       "args": ["-m", "tidal_mcp.server"]
@@ -134,6 +130,7 @@ All commands use the `crate` CLI:
 
 | Command | Description |
 |---------|-------------|
+| `crate spotify-auth` | Authenticate with Spotify (interactive OAuth flow) |
 | `crate fetch <playlist-url>` | Fetch tracks from Spotify playlist → JSON |
 | `crate enrich <file>` | Enrich missing genres/years via MusicBrainz |
 | `crate classify <file>` | Classify tracks into 18 genre buckets |
@@ -403,16 +400,6 @@ make db-stop   # docker compose down
 Audio analysis runs natively — no Docker container needed.
 
 ## MCP Servers
-
-### Spotify MCP (29 tools)
-
-| Category | Tools |
-|----------|-------|
-| Search & Discovery | Search tracks/albums/artists/playlists |
-| Playlist Management | Create, update, add/remove/reorder tracks |
-| Track Analysis | Audio features (BPM, key, energy, danceability), artist genres |
-| Playback Control | Play, pause, skip, queue, volume, devices |
-| Library | Saved tracks, saved albums, recently played |
 
 ### Tidal MCP (19 tools)
 
