@@ -32,7 +32,7 @@ def test_no_config_returns_implicit_commercial(tmp_path: Path):
     assert prof.name == "commercial"
     assert prof.tag_format == "structured_comment"
     assert prof.required_fields == ["energy", "function", "crowd", "mood_tags"]
-    assert prof.fallback == "Pop"
+    assert prof.fallback == "Unclassified"
 
 
 def test_no_config_unknown_profile_errors(tmp_path: Path):

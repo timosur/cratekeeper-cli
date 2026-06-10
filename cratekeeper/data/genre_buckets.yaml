@@ -1,0 +1,77 @@
+presets:
+  commercial:
+    fallback: Unclassified
+    buckets:
+      - name: Schlager
+        genre_tags: [schlager, german schlager, discofox, volksmusik]
+      - name: Drum & Bass
+        genre_tags: [drum and bass, jungle, liquid dnb, liquid funk, dnb]
+      - name: Hardstyle
+        genre_tags: [hardstyle, hardcore, gabber, rawstyle]
+      - name: Melodic Techno
+        genre_tags: [melodic techno, melodictechno, indie dance]
+      - name: Techno
+        genre_tags: [techno, hard techno, hardtechno, hypertechno, industrial techno, peak time techno]
+      - name: Minimal / Tech House
+        genre_tags: [minimal techno, tech house, techhouse, minimal]
+      - name: Deep House
+        genre_tags: [deep house, deephouse, organic house, tropical house]
+      - name: Progressive House
+        genre_tags: [progressive house, progressivehouse, progressive trance]
+      - name: Trance
+        genre_tags: [trance, psytrance, uplifting trance, goatrance]
+      - name: House
+        genre_tags: [house, electro house, electrohouse, funky house, uk garage]
+      - name: EDM / Big Room
+        genre_tags: [edm, big room, bigroom, electro]
+      - name: Dance / Hands Up
+        genre_tags: [dance, hands up, eurodance, handsup]
+      - name: Hip-Hop / R&B
+        genre_tags:
+          - hip hop
+          - rap
+          - r&b
+          - trap
+          - urban contemporary
+          - german hip hop
+          - gangster rap
+          - g-funk
+          - west coast hip hop
+      - name: Latin / Global
+        genre_tags: [reggaeton, latin, salsa, bachata, latin pop]
+      - name: Disco / Funk / Soul
+        genre_tags: [disco, funk, soul, motown, boogie, classic soul, nu disco, italo disco]
+      - name: Rock
+        genre_tags: [rock, classic rock, indie, alternative, punk, indie rock, indie pop, new wave, post-punk]
+      - name: Ballads / Slow
+        genre_tags: [ballad, slow, acoustic, singer-songwriter]
+      - name: Pop
+        genre_tags: [pop, dance pop, europop, german pop, soft pop, viral pop, party]
+
+  electronic:
+    fallback: Unclassified
+    buckets:
+      - name: Drum & Bass
+        genre_tags: [drum and bass, jungle, liquid dnb, liquid funk, dnb, neurofunk]
+      - name: Hardstyle / Hardcore
+        genre_tags: [hardstyle, hardcore, gabber, rawstyle, hard dance]
+      - name: Dubstep / Bass
+        genre_tags: [dubstep, bass music, future bass, riddim, trap]
+      - name: Melodic Techno
+        genre_tags: [melodic techno, melodictechno, melodic house, indie dance]
+      - name: Techno
+        genre_tags: [techno, hard techno, hardtechno, hypertechno, industrial techno, peak time techno]
+      - name: Minimal / Tech House
+        genre_tags: [minimal techno, tech house, techhouse, minimal]
+      - name: Deep House
+        genre_tags: [deep house, deephouse, organic house, tropical house, afro house]
+      - name: Progressive House
+        genre_tags: [progressive house, progressivehouse, progressive trance]
+      - name: Trance
+        genre_tags: [trance, psytrance, uplifting trance, goa, goatrance]
+      - name: EDM / Big Room
+        genre_tags: [edm, big room, bigroom, electro, future house]
+      - name: Disco / Nu Disco
+        genre_tags: [nu disco, disco, italo disco, funk, boogie]
+      - name: House
+        genre_tags: [house, electro house, electrohouse, funky house, uk garage, garage, dance]

@@ -18,10 +18,10 @@ def _track(**kw) -> Track:
 
 # --- Electronic preset ---
 
-def test_electronic_preset_exists_with_house_fallback():
+def test_electronic_preset_exists_with_unclassified_fallback():
     preset = get_preset("electronic")
     names = {b.name for b in preset.buckets}
-    assert preset.fallback == "House"
+    assert preset.fallback == "Unclassified"
     # No commercial-only buckets
     assert "Schlager" not in names
     assert "Pop" not in names
@@ -29,8 +29,8 @@ def test_electronic_preset_exists_with_house_fallback():
     assert "Latin / Global" not in names
 
 
-def test_commercial_preset_pop_fallback():
-    assert get_preset("commercial").fallback == "Pop"
+def test_commercial_preset_unclassified_fallback():
+    assert get_preset("commercial").fallback == "Unclassified"
 
 
 def test_classify_with_electronic_buckets():
@@ -46,14 +46,14 @@ def test_classify_fallback_uses_profile_fallback():
     t = _track(artist_genres=["polka"])
     bucket, conf = classify_track(t, preset.buckets, preset.fallback)
     assert conf == "low"
-    assert bucket == "House"
+    assert bucket == "Unclassified"
 
 
 def test_classify_tracks_threads_fallback():
     preset = get_preset("electronic")
     tracks = [_track(artist_genres=["nothing matches here"])]
     classify_tracks(tracks, buckets=preset.buckets, fallback=preset.fallback)
-    assert tracks[0].bucket == "House"
+    assert tracks[0].bucket == "Unclassified"
 
 
 # --- Admission via required_fields ---

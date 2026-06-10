@@ -1,9 +1,10 @@
 """Profile-based configuration system for Cratekeeper.
 
-Loads a TOML config from ``~/.cratekeeper/config.toml`` describing named
-profiles. Each profile drives genre buckets, DJ-software target, library
-output path, per-profile data directory, library admission criteria, track
-sort order, and tag format.
+Loads a TOML config from ``$XDG_CONFIG_HOME/cratekeeper/config.toml``
+(default: ``~/.config/cratekeeper/config.toml``) describing named profiles.
+Each profile drives genre buckets, DJ-software target, library output path,
+per-profile data directory, library admission criteria, track sort order, and
+tag format.
 
 When no config file exists the CLI uses an implicit ``commercial`` profile
 that reproduces the historical hardcoded defaults, so existing behaviour is
@@ -12,13 +13,15 @@ preserved without any config.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from cratekeeper.pipeline.genre_buckets import GenreBucket, get_preset
 
-DEFAULT_CONFIG_PATH = Path.home() / ".cratekeeper" / "config.toml"
+_XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+DEFAULT_CONFIG_PATH = _XDG_CONFIG / "cratekeeper" / "config.toml"
 
 TAG_FORMATS = {"structured_comment", "id3_only"}
 DJ_SOFTWARE = {"djay_pro", "rekordbox"}
@@ -154,7 +157,7 @@ def _parse_buckets(raw, profile_name: str) -> tuple[list[GenreBucket], str]:
             buckets.append(GenreBucket(name=entry["name"], genre_tags=list(entry["genre_tags"])))
         if not buckets:
             raise ConfigError(f"Profile {profile_name!r}: inline buckets list is empty")
-        return buckets, "Pop"
+        return buckets, "Unclassified"
     raise ConfigError(
         f"Profile {profile_name!r}: 'buckets' must be a preset name or a list of bucket tables"
     )
@@ -204,7 +207,7 @@ def _build_profile(name: str, raw: dict) -> Profile:
     data_dir = (
         Path(data_dir_raw).expanduser()
         if data_dir_raw
-        else Path.home() / ".cratekeeper" / name / "data"
+        else _XDG_CONFIG / "cratekeeper" / name / "data"
     )
 
     required_fields = list(raw.get("required_fields", DEFAULT_REQUIRED_FIELDS))

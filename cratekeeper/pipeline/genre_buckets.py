@@ -28,7 +28,7 @@ class BucketPreset:
 
     name: str
     buckets: list[GenreBucket] = field(default_factory=list)
-    fallback: str = "Pop"
+    fallback: str = "Unclassified"
 
 
 def _build_presets() -> dict[str, BucketPreset]:
@@ -43,7 +43,7 @@ def _build_presets() -> dict[str, BucketPreset]:
         result[preset_name] = BucketPreset(
             name=preset_name,
             buckets=buckets,
-            fallback=preset_data.get("fallback", "Pop"),
+            fallback=preset_data.get("fallback", "Unclassified"),
         )
     return result
 
