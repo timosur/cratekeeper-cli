@@ -7,7 +7,7 @@ Matches Spotify tracks in the event plan to local audio files in the PostgreSQL 
 ## Requirements
 
 ### Requirement: Match tracks to local files via cascading strategy
-The system SHALL attempt to match each track in the event plan to a local audio file using three strategies in order: ISRC match, exact normalized artist+title match, and fuzzy artist+title match.
+The system SHALL attempt to match each track in the event plan to a local audio file using three strategies in order: ISRC match, exact normalized artist+title match, and fuzzy artist+title match. The optional `--tidal-urls` flag resolves Tidal URLs for unmatched tracks using `cratekeeper.tidal.client` (previously `cratekeeper.spotify.tidal`). Authentication uses the native session at `~/.config/cratekeeper/tidal-session.json`.
 
 #### Scenario: ISRC match (highest priority)
 - **WHEN** the DJ runs `crate match` and a track's ISRC matches a local file's ISRC in the database
@@ -28,3 +28,15 @@ The system SHALL attempt to match each track in the event plan to a local audio 
 #### Scenario: Match result persistence
 - **WHEN** matching completes
 - **THEN** all match results are persisted back to the event-plan JSON so downstream commands can use them
+
+#### Scenario: Tidal URL resolution for unmatched tracks
+- **GIVEN** a plan with unmatched tracks that have ISRCs
+- **AND** a valid Tidal session exists
+- **WHEN** the DJ runs `crate match --tidal-urls`
+- **THEN** the system resolves Tidal URLs for unmatched tracks via ISRC
+- **AND** writes a `.missing-tidal.txt` file with the resolved URLs
+
+#### Scenario: Tidal URL resolution without session
+- **GIVEN** no Tidal session file exists
+- **WHEN** the DJ runs `crate match --tidal-urls`
+- **THEN** the system displays an error directing the user to run `crate tidal-auth`

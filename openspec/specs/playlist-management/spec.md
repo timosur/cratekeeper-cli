@@ -38,12 +38,15 @@ The system SHALL maintain persistent `[DJ] Genre` master playlists on Spotify th
 - **THEN** the system skips it without adding a duplicate
 
 ### Requirement: Sync classified playlists to Tidal
-The system SHALL sync Spotify-based genre playlists to Tidal by looking up each track via ISRC. This command is event-only and SHALL reject library-import plans.
+The system SHALL sync Spotify-based genre playlists to Tidal by looking up each track via ISRC. This command is event-only and SHALL reject library-import plans. The command is registered in `cli_tidal.py` and imports from `cratekeeper.tidal.client`. Authentication uses the native session at `~/.config/cratekeeper/tidal-session.json`.
 
 #### Scenario: Successful ISRC sync from event plan
 - **GIVEN** a classified event plan
-- **WHEN** the DJ runs `crate sync-to-tidal` and a track's ISRC is found on Tidal
-- **THEN** the system adds the Tidal track to the corresponding Tidal playlist
+- **AND** a valid Tidal session exists
+- **WHEN** the DJ runs `crate sync-to-tidal`
+- **THEN** the system creates a Tidal playlist per non-empty genre bucket
+- **AND** adds tracks by ISRC to each playlist
+- **AND** stores Tidal playlist IDs in the plan JSON
 
 #### Scenario: ISRC not found on Tidal
 - **WHEN** a track's ISRC has no Tidal match
@@ -54,3 +57,8 @@ The system SHALL sync Spotify-based genre playlists to Tidal by looking up each 
 - **WHEN** the DJ runs `crate sync-to-tidal`
 - **THEN** the system prints an error indicating this command is not applicable to library imports
 - **AND** exits with a non-zero exit code
+
+#### Scenario: No Tidal session
+- **GIVEN** no Tidal session file exists
+- **WHEN** the DJ runs `crate sync-to-tidal`
+- **THEN** the system displays an error directing the user to run `crate tidal-auth`
