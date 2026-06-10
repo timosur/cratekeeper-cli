@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "context7": {
+      "source": "netresearch/context7-skill",
+      "sourceType": "github",
+      "skillPath": "skills/context7/SKILL.md",
+      "computedHash": "0c70e203642f5dcfc9307976fe75f333e9beba9af30beaf5dac0cecc87cf0cdd"
+    },
     "grill-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",

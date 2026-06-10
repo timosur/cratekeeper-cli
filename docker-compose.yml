@@ -15,21 +15,5 @@ services:
       timeout: 3s
       retries: 10
 
-  crate:
-    build: .
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./data:/data
-      - ./cratekeeper:/app/cratekeeper
-      - ./spotify-mcp/spotify-config.json:/app/../spotify-mcp/spotify-config.json
-      - /Volumes/home/Music:/music:ro
-      - ~/Music/Library:/library
-    working_dir: /app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://dj:dj@db:5432/djlib
-
 volumes:
   pgdata:

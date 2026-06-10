@@ -13,12 +13,10 @@ dependencies = [
     "thefuzz[speedup]>=0.22.0",
     "psycopg2-binary>=2.9.0",
     "pyyaml>=6.0",
+    "essentia-tensorflow>=2.1b6.dev1389; platform_system != 'Windows'",
 ]
 
 [project.optional-dependencies]
-audio = [
-    "essentia-tensorflow>=2.1b6.dev1110; platform_system != 'Windows'",
-]
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.8.0",

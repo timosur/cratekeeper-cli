@@ -8,8 +8,8 @@ Basic features (BPM, energy, danceability, key, loudness) use built-in
 essentia algorithms. Advanced features (mood classifiers, arousal/valence,
 voice detection) require essentia-tensorflow and pre-trained models.
 
-This module requires essentia to be installed (Linux: pip install essentia,
-or use the provided Dockerfile).
+Install: pip install essentia-tensorflow
+Supported platforms: macOS 15+ (Apple Silicon and x86_64), Linux x86_64.
 """
 
 from __future__ import annotations
@@ -29,11 +29,9 @@ os.environ.setdefault("GCS_READ_CACHE_DISABLED", "true")     # no GCS network ca
 os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")             # silence absl INFO/WARNING
 
 # Directory for downloaded TF models.
-# Inside Docker the image bakes models into /app/models; locally we cache in
-# the user's XDG cache dir so non-root users can write models on first run.
+# Defaults to ~/.cache/cratekeeper/models (respects XDG_CACHE_HOME).
+# Override with the ESSENTIA_MODELS_DIR environment variable.
 def _default_models_dir() -> Path:
-    if Path("/.dockerenv").exists():
-        return Path("/app/models")
     cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return Path(cache_home) / "cratekeeper" / "models"
 
@@ -113,9 +111,9 @@ def extract_features(file_path: str | Path, use_tf: bool = True, require_tf: boo
         import essentia.standard as es
     except ImportError:
         raise ImportError(
-            "essentia is not installed. Use the Docker image or install on Linux:\n"
-            "  pip install essentia\n"
-            "Or run: docker compose run dj analyze-mood ..."
+            "essentia-tensorflow is not installed. Run:\n"
+            "  pip install essentia-tensorflow\n"
+            "Supported platforms: macOS 15+ (Apple Silicon / x86_64), Linux x86_64."
         )
 
     file_path = str(file_path)
@@ -352,20 +350,6 @@ def analyze_track(
     return extract_features(file_path, use_tf=use_tf, require_tf=require_tf)
 
 
-def _remap_path(file_path: str) -> str:
-    """Remap host paths to container paths when running inside Docker."""
-    if not Path("/.dockerenv").exists():
-        return file_path
-    mappings = [
-        ("/Volumes/home/Music/", "/music/"),
-        (str(Path.home() / "Music" / "Library") + "/", "/library/"),
-    ]
-    for host_prefix, container_prefix in mappings:
-        if file_path.startswith(host_prefix):
-            return container_prefix + file_path[len(host_prefix):]
-    return file_path
-
-
 def _classify_energy(energy_value: float) -> str:
     """Map raw 0-1 energy to low/mid/high."""
     if energy_value < 0.33:
@@ -403,7 +387,7 @@ def analyze_tracks(
 
     candidates = [
         t for t in tracks
-        if t.local_path and Path(_remap_path(t.local_path)).exists()
+        if t.local_path and Path(t.local_path).exists()
         and (force or not _is_analyzed(t))
     ]
     analyzed = 0
@@ -411,7 +395,7 @@ def analyze_tracks(
     for i, track in enumerate(candidates):
         try:
             features = analyze_track(
-                _remap_path(track.local_path),
+                track.local_path,
                 genre=track.bucket,
                 use_tf=use_tf,
                 require_tf=use_tf,

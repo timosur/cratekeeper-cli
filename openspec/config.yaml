@@ -11,11 +11,11 @@ context: |
   
   Tech stack: Python 3.11+, Typer (CLI), Rich (console), Spotipy, tidalapi,
   mutagen (audio tags), psycopg2 (PostgreSQL), thefuzz (fuzzy matching),
-  essentia-tensorflow (audio analysis, Docker only). Build: Hatchling (PEP 517).
+  essentia-tensorflow (audio analysis, native macOS 15+/Linux x86_64). Build: Hatchling (PEP 517).
   
   Constraints:
   - Single CLI, no services or daemons
-  - Docker for audio analysis only (essentia + TF require Linux x86_64)
+  - Docker for PostgreSQL only (audio analysis runs natively via pip)
   - PostgreSQL for local file index (scan/match)
   - Spotify and MusicBrainz rate limits respected
   - Secrets via environment only (never committed)

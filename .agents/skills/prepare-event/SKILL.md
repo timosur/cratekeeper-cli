@@ -1,6 +1,6 @@
 ---
 name: prepare-event
-description: 'End-to-end pipeline: Spotify wish playlist → classified, mood-analyzed, LLM-tagged local event folder ready for DJing. Use when: preparing a wedding, party, or corporate event from a client wish playlist. Requires: spotify MCP server connected, Docker for essentia audio analysis, NAS mounted at /Volumes/Music.'
+description: 'End-to-end pipeline: Spotify wish playlist → classified, mood-analyzed, LLM-tagged local event folder ready for DJing. Use when: preparing a wedding, party, or corporate event from a client wish playlist. Requires: spotify MCP server connected, essentia-tensorflow installed (pip), NAS mounted at /Volumes/Music.'
 argument-hint: 'Provide the Spotify playlist URL, event name, and event date'
 ---
 
@@ -17,7 +17,7 @@ Full pipeline from a Spotify wish playlist to a flat event folder with files tag
 ## Required
 
 - **Python ≥ 3.11** with `cratekeeper-cli` installed locally (`pip install -e ./cratekeeper-cli`)
-- **Docker** — needed for audio analysis (essentia + TF models require Linux x86_64)
+- **essentia-tensorflow** — installed via pip (`pip install essentia-tensorflow`); requires macOS 15+ or Linux x86_64
 - **PostgreSQL** — running locally or via Docker; default connection: `postgresql://dj:dj@localhost:5432/djlib` (override with `DATABASE_URL` env var)
 - **spotify MCP server** — connected and authenticated
 - **NAS mounted** at `/Volumes/Music` (or wherever the music library lives)
@@ -27,7 +27,6 @@ Full pipeline from a Spotify wish playlist to a flat event folder with files tag
 | Context | data dir | NAS music | Library |
 |---------|----------|-----------|---------|
 | **Local** | `data/` | `/Volumes/Music` | `~/Music/Library` |
-| **Docker** (analysis only) | `/data` | `/music` | `/library` |
 
 ## Genre Buckets (18)
 
@@ -61,14 +60,10 @@ The user provides:
 
 ## Procedure
 
-Most commands run locally. Audio analysis uses Docker (essentia + TF models require Linux x86_64).
+Most commands run locally, including audio analysis.
 
 ```bash
-# Local commands
 crate <command> [args]
-
-# Docker (audio analysis only)
-docker compose run --rm crate <command> [args]
 ```
 
 ### Step 1: Fetch Tracks from Spotify
@@ -159,10 +154,10 @@ The previously missing tracks should now show as matched. Any remaining unmatche
 
 **Ask the user**: *"There are X missing tracks. Want to purchase them before continuing, or proceed without?"* If they want to proceed, skip to Step 7.
 
-### Step 7: Analyze Audio (essentia + TF) — Docker required
+### Step 7: Analyze Audio (essentia + TF)
 
 ```bash
-docker compose run --rm crate analyze-mood /data/<slug>.classified.json
+crate analyze-mood data/<slug>.classified.json
 ```
 
 Uses essentia + TensorFlow models to extract:
@@ -173,7 +168,7 @@ Uses essentia + TensorFlow models to extract:
 
 Sets preliminary energy classification (low/mid/high) from RMS energy. Show the energy distribution table.
 
-**Important**: This is the only step that requires Docker. The `local_path` values in the JSON use host paths. Docker volume mappings: `/Volumes/Music:/music:ro`, `~/Music/Library:/library`.
+**Note**: TF models (~300 MB) are downloaded automatically to `~/.cache/cratekeeper/models` on first run.
 
 ### Step 8: Classify Tags via Sub-Agent
 
@@ -301,7 +296,7 @@ crate fetch "<playlist-url>" --output data/<slug>.json
 crate enrich data/<slug>.json
 crate classify data/<slug>.json
 crate match data/<slug>.classified.json --tidal-urls
-docker compose run --rm crate analyze-mood /data/<slug>.classified.json
+crate analyze-mood data/<slug>.classified.json
 # classify tags via sub-agent + crate apply-tags (see step 8)
 crate tag data/<slug>.classified.json
 crate review-library data/<slug>.classified.json

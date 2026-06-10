@@ -33,7 +33,6 @@ cratekeeper/
 │   │   ├── tidal_client.py    # Tidal sync
 │   │   ├── musicbrainz_client.py  # MusicBrainz genre/year enrichment
 │   │   └── local_scanner.py   # PostgreSQL audio file indexer
-│   ├── Dockerfile             # essentia + TF models (Linux x86_64)
 │   └── pyproject.toml
 ├── spotify-mcp/           # Spotify MCP server (TypeScript)
 ├── tidal-mcp/             # Tidal MCP server (Python)
@@ -44,7 +43,7 @@ cratekeeper/
 ## Requirements
 
 - **Python ≥ 3.11**
-- **Docker** — for audio analysis (essentia + TF models require Linux x86_64)
+- **macOS 15+ (Apple Silicon or x86_64) or Linux x86_64** — for native audio analysis via essentia-tensorflow
 - **PostgreSQL** — local file index (`postgresql://dj:dj@localhost:5432/djlib`, override with `DATABASE_URL`)
 - **NAS / music library** mounted locally (e.g., `/Volumes/Music`)
 - **Spotify Developer App** — [create one here](https://developer.spotify.com/dashboard)
@@ -87,17 +86,7 @@ A `./crate` wrapper script at the repo root runs the CLI from the `.venv` withou
 | `make check` | Lint + test combined |
 | `make db` | Start Postgres via docker compose |
 | `make db-stop` | Stop docker compose services |
-| `make docker-build` | Build Docker image (essentia + TF models) |
-| `make docker-run` | Run crate in Docker (`make docker-run ARGS="analyze-mood /data/file.json"`) |
 | `make clean` | Remove `.venv`, caches, build artifacts |
-
-### Build Docker Image (for audio analysis)
-
-```bash
-make docker-build
-```
-
-The Docker image includes essentia, essentia-tensorflow, and 10 pre-trained TF models (~300 MB total) for mood classification, key detection, arousal/valence, and voice/instrumental detection.
 
 ### 3. Setup Spotify MCP Server
 
@@ -152,7 +141,7 @@ All commands use the `crate` CLI:
 | `crate scan <directory>` | Index local audio files into PostgreSQL |
 | `crate match <file>` | Match Spotify tracks to local files (ISRC → exact → fuzzy) |
 | `crate match <file> --tidal-urls` | …and resolve Tidal URLs for missing tracks |
-| `crate analyze-mood <file>` | Extract audio features via essentia + TF models (**Docker**) |
+| `crate analyze-mood <file>` | Extract audio features via essentia + TF models (native) |
 | `crate apply-tags <file> <tags.json>` | Apply LLM-classified tags (energy, function, crowd, mood) from a JSON file into the plan |
 | `crate tag <file>` | Write genre, BPM, key, and structured tags into audio file metadata |
 | `crate review-library <file>` | Interactively approve/reject matched tracks before they enter the master library |
@@ -266,8 +255,8 @@ crate match data/wedding.classified.json
 # crate match data/wedding.classified.json --tidal-urls
 # → creates .missing-tidal.txt with URLs
 
-# 7. Analyze audio features (Docker required)
-docker compose run --rm crate analyze-mood /data/wedding.classified.json
+# 7. Analyze audio features (downloads ~300 MB TF models on first run)
+crate analyze-mood data/wedding.classified.json
 
 # 8. Classify tags via LLM sub-agent → apply results
 # (Run the prepare-event skill Step 8: sub-agent produces tags JSON, then:)
@@ -376,7 +365,7 @@ Additional audio metadata written to tags:
 
 ## Audio Analysis (essentia)
 
-The `analyze-mood` command extracts features via Docker (essentia requires Linux x86_64):
+The `analyze-mood` command extracts features natively via pip-installed essentia-tensorflow:
 
 **Basic features** (built-in essentia algorithms):
 - BPM (RhythmExtractor2013)
@@ -400,24 +389,18 @@ All audio data is stored in the event JSON and fed to the LLM for informed tag a
 | `ANTHROPIC_API_KEY` | For `classify-tags` | — | Anthropic API key |
 | `OPENAI_API_KEY` | If using `--provider openai` | — | OpenAI API key |
 | `DATABASE_URL` | No | `postgresql://dj:dj@localhost:5432/djlib` | PostgreSQL connection |
-| `ESSENTIA_MODELS_DIR` | No | `/app/models` | Directory for TF model files |
+| `ESSENTIA_MODELS_DIR` | No | `~/.cache/cratekeeper/models` | Directory for TF model files |
 
 ## Docker
 
-The Docker image is used only for audio analysis (essentia + TF models). All other commands run locally.
+Docker is used only for PostgreSQL. Start the database with:
 
 ```bash
-# Build
-make docker-build
-
-# Run audio analysis
-make docker-run ARGS="analyze-mood /data/<file>.classified.json"
-
-# The docker-compose.yml maps:
-#   ./data → /data
-#   /Volumes/Music → /music (read-only)
-#   ~/Music/Library → /library
+make db        # docker compose up -d db
+make db-stop   # docker compose down
 ```
+
+Audio analysis runs natively — no Docker container needed.
 
 ## MCP Servers
 
@@ -447,7 +430,7 @@ make docker-run ARGS="analyze-mood /data/<file>.classified.json"
 - **Genre folders for the library, flat folders for events** — the master library uses `Genre/` for browsing/archival; event folders are flat and sliced live by tag-based quick filters in djay PRO
 - **LLM for semantic tags** — audio analysis provides objective data, the LLM interprets it contextually (a "sad" ballad vs. a "sad" techno track serve different functions)
 - **Batch processing** — LLM classifies 15 tracks at a time for efficiency
-- **Docker for essentia only** — essentia + TF require Linux x86_64; everything else runs natively on macOS
+- **Native essentia** — essentia-tensorflow installs natively on macOS 15+ (Apple Silicon and x86_64) and Linux x86_64; Docker is not required for audio analysis
 - **Master playlist naming** — `[DJ] Genre` pattern for cross-event playlists
 - **ISRC-first matching** — most reliable way to match Spotify tracks to local files
 
