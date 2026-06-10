@@ -15,6 +15,47 @@ DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
 
 
 @dataclass
+class LibraryPreflight:
+    """Result of a pre-flight check before build-library runs.
+
+    ``qualifies`` is True when at least one track will be copied.
+    The count fields explain why tracks don't qualify when ``qualifies`` is False.
+    """
+
+    candidates: int = 0        # tracks with local_path + bucket
+    approved_tagged: int = 0   # candidates that are approved + fully tagged
+    undecided: int = 0
+    rejected: int = 0
+    untagged: int = 0          # approved but missing required tags
+
+    @property
+    def qualifies(self) -> bool:
+        return self.approved_tagged > 0
+
+
+def library_preflight(
+    tracks: list[Track],
+    required_fields: list[str] | None = None,
+) -> LibraryPreflight:
+    """Return a pre-flight summary without copying any files."""
+    candidates = [t for t in tracks if t.local_path and t.bucket]
+    approved_tagged = [
+        t for t in candidates
+        if t.library_approval == "approved" and is_fully_tagged(t, required_fields)
+    ]
+    return LibraryPreflight(
+        candidates=len(candidates),
+        approved_tagged=len(approved_tagged),
+        undecided=sum(1 for t in candidates if t.library_approval == "undecided"),
+        rejected=sum(1 for t in candidates if t.library_approval == "rejected"),
+        untagged=sum(
+            1 for t in candidates
+            if t.library_approval == "approved" and not is_fully_tagged(t, required_fields)
+        ),
+    )
+
+
+@dataclass
 class BuildLibraryResult:
     """Counts for each disposition category from a build-library run."""
 

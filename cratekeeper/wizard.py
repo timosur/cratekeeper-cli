@@ -155,10 +155,7 @@ def _run_fetch(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
         tracks=tracks,
     )
 
-    data_dir = profile.data_dir
-    data_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = playlist_name.lower().replace(" ", "-").replace("/", "-")[:50]
-    output = data_dir / f"{safe_name}.json"
+    output = profile.plan_path(playlist_name)
     plan.save(output)
 
     return plan, f"Fetched {len(tracks)} tracks → {output}"
@@ -240,10 +237,7 @@ def _run_import_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, s
         tracks=tracks,
     )
 
-    data_dir = profile.data_dir
-    data_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = (source_path.name or "import").lower().replace(" ", "-").replace("/", "-")[:50]
-    output = data_dir / f"{safe_name}.json"
+    output = profile.plan_path(source_path.name or "import")
     plan.save(output)
 
     return plan, f"Imported {len(tracks)} tracks → {output}"
@@ -624,11 +618,7 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
             if plan is not None:
                 save_path = plan_path
                 if save_path is None:
-                    # Derive path from profile data_dir
-                    data_dir = profile.data_dir
-                    data_dir.mkdir(parents=True, exist_ok=True)
-                    safe_name = plan.source_playlist_name.lower().replace(" ", "-").replace("/", "-")[:50]
-                    save_path = data_dir / f"{safe_name}.json"
+                    save_path = profile.plan_path(plan.source_playlist_name)
                     plan_path = save_path
                 plan.save(save_path)
 

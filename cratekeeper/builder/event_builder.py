@@ -11,6 +11,8 @@ from mutagen.flac import FLAC
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 
+from dataclasses import dataclass as _dataclass
+
 from cratekeeper.models import Track
 from cratekeeper.pipeline.tag_writer import COMMENT_MARKER, is_fully_tagged
 
@@ -78,6 +80,36 @@ def _has_embedded_comment(path: Path) -> bool:
             return marker in comment if comment else True
     except Exception:
         return False
+
+
+@_dataclass
+class EventPreflight:
+    """Result of a pre-flight check before build-event runs.
+
+    ``qualifies`` is True when at least one track passes the plan-level tag gate.
+    """
+
+    candidates: int = 0         # tracks with local_path
+    fully_tagged: int = 0       # candidates that pass the required_fields gate
+    untagged: int = 0           # candidates missing required plan tags
+
+    @property
+    def qualifies(self) -> bool:
+        return self.fully_tagged > 0
+
+
+def event_preflight(
+    tracks: list[Track],
+    required_fields: list[str] | None = None,
+) -> EventPreflight:
+    """Return a pre-flight summary without copying any files."""
+    candidates = [t for t in tracks if t.local_path]
+    fully_tagged = [t for t in candidates if is_fully_tagged(t, required_fields)]
+    return EventPreflight(
+        candidates=len(candidates),
+        fully_tagged=len(fully_tagged),
+        untagged=len(candidates) - len(fully_tagged),
+    )
 
 
 @dataclass

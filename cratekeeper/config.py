@@ -86,6 +86,17 @@ class Profile:
     tag_format: str = "structured_comment"
     sort: SortRule | None = None
 
+    def plan_path(self, name: str) -> Path:
+        """Return the default JSON plan path for a playlist or source name.
+
+        Slugifies ``name`` to a safe 50-char filename and ensures the
+        profile's ``data_dir`` exists. Used by ``fetch`` and ``import-library``
+        to derive a consistent output path without duplicating the logic.
+        """
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = name.lower().replace(" ", "-").replace("/", "-")[:50]
+        return self.data_dir / f"{safe_name}.json"
+
     def describe(self) -> dict:
         """Return a JSON-friendly summary for ``crate profile show``."""
         return {

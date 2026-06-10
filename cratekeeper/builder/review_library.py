@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from cratekeeper.pipeline.tag_writer import is_fully_tagged
 from cratekeeper.models import Track
 
@@ -17,9 +19,23 @@ def undecided_candidates(tracks: list[Track]) -> list[Track]:
 
 
 def is_admission_complete(track: Track, required_fields: list[str] | None = None) -> bool:
-    """Return True when the track satisfies the active profile's admission fields.
-
-    Delegates to the shared library admission gate so review and build agree on
-    what "fully tagged" means for the active profile.
-    """
+    """Return True when the track satisfies the active profile's admission fields."""
     return is_fully_tagged(track, required_fields)
+
+
+@dataclass
+class ReviewSummary:
+    """Approval tallies for the review-library session summary."""
+
+    approved: int
+    rejected: int
+    undecided: int
+
+
+def review_summary(candidates: list[Track]) -> ReviewSummary:
+    """Return approval counts for a list of candidate tracks."""
+    return ReviewSummary(
+        approved=sum(1 for t in candidates if t.library_approval == "approved"),
+        rejected=sum(1 for t in candidates if t.library_approval == "rejected"),
+        undecided=sum(1 for t in candidates if t.library_approval == "undecided"),
+    )
