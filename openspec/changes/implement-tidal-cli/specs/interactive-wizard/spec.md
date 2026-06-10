@@ -2,8 +2,7 @@
 
 ### Requirement: Optional step skipping
 
-Feature: Optional step skipping
-  Optional steps can be skipped; required steps cannot. The sync-to-tidal wizard step imports from `cratekeeper.tidal.client` (previously `cratekeeper.spotify.tidal`) and uses the native Tidal session at `~/.config/cratekeeper/tidal-session.json`.
+The wizard SHALL allow optional steps to be skipped; required steps MUST NOT be skippable. The sync-to-tidal wizard step imports from `cratekeeper.tidal.client` (previously `cratekeeper.spotify.tidal`) and SHALL use the native Tidal session at `~/.config/cratekeeper/tidal-session.json`.
 
 #### Scenario: User skips an optional step
 

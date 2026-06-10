@@ -2,8 +2,7 @@
 
 ### Requirement: Tidal PKCE authentication flow
 
-Feature: Tidal PKCE authentication
-  The CLI provides a native `crate tidal-auth` command that authenticates with Tidal using PKCE OAuth and persists the session to a local JSON file.
+The system SHALL provide a native `crate tidal-auth` command that authenticates with Tidal using PKCE OAuth and persists the session to a local JSON file.
 
 #### Scenario: First-time authentication
 
@@ -42,8 +41,7 @@ Feature: Tidal PKCE authentication
 
 ### Requirement: Tidal session loading for CLI commands
 
-Feature: Tidal session loading
-  All Tidal operations load the persisted session and fail with a clear message if not authenticated.
+The system SHALL load the persisted Tidal session for all Tidal operations and MUST fail with a clear message if not authenticated.
 
 #### Scenario: Load valid session
 

@@ -415,7 +415,8 @@ def _run_create_playlists(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan,
 
 
 def _run_sync_tidal(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
-    from cratekeeper.spotify.tidal import get_tidal_session, sync_plan_to_tidal
+    from cratekeeper.tidal.auth import get_tidal_session
+    from cratekeeper.tidal.client import sync_plan_to_tidal
 
     if not isinstance(plan, EventPlan):
         return plan, "Skipped — not an event plan"

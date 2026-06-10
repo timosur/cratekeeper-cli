@@ -1,34 +1,10 @@
-"""Tidal API client — wraps tidalapi, reuses tidal-session.json."""
+"""Tidal API client — wraps tidalapi for playlist and track operations."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import tidalapi
 
-_SESSION_SEARCH_PATHS = [
-    Path(__file__).resolve().parent.parent.parent / "tidal-mcp" / "tidal-session.json",
-]
-
-
-def _find_session_file() -> Path:
-    for p in _SESSION_SEARCH_PATHS:
-        if p.exists():
-            return p
-    raise FileNotFoundError(
-        "tidal-session.json not found. Run `python -m tidal_mcp.auth` first. "
-        "Expected at: " + ", ".join(str(p) for p in _SESSION_SEARCH_PATHS)
-    )
-
-
-def get_tidal_session() -> tidalapi.Session:
-    """Return an authenticated Tidal session."""
-    session_file = _find_session_file()
-    session = tidalapi.Session()
-    session.login_session_file(session_file)
-    if not session.check_login():
-        raise RuntimeError("Tidal session expired. Re-run `python -m tidal_mcp.auth`.")
-    return session
+from cratekeeper.tidal.auth import get_tidal_session
 
 
 def create_playlist(session: tidalapi.Session, name: str, description: str = "") -> str:
@@ -117,7 +93,7 @@ def resolve_tidal_urls(
 ) -> dict[str, str | None]:
     """Resolve a list of ISRCs to Tidal URLs.
 
-    Returns a dict mapping ISRC → Tidal URL (or None if not found).
+    Returns a dict mapping ISRC -> Tidal URL (or None if not found).
     """
     results: dict[str, str | None] = {}
     for i, isrc in enumerate(isrcs):

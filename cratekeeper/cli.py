@@ -2,13 +2,14 @@
 
 Command registration is split across domain sub-modules:
 
-  cli_spotify.py   — fetch, classify, enrich, review, create-playlists,
-                     build-masters, sync-to-tidal
-  cli_local.py     — scan, match, import-library
-  cli_pipeline.py  — analyze-mood, apply-tags, tag, tag-untagged
-  cli_builder.py   — review-library, build-library, build-event
-  cli_export.py    — export-rekordbox
-  cli_profile.py   — profile list/show/use/init
+   cli_spotify.py   — fetch, classify, enrich, review, create-playlists,
+                     build-masters
+   cli_tidal.py     — sync-to-tidal
+   cli_local.py     — scan, match, import-library
+   cli_pipeline.py  — analyze-mood, apply-tags, tag, tag-untagged
+   cli_builder.py   — review-library, build-library, build-event
+   cli_export.py    — export-rekordbox
+   cli_profile.py   — profile list/show/use/init
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import typer
 from rich.console import Console
 
 import cratekeeper.cli_spotify as _spotify
+import cratekeeper.cli_tidal as _tidal
 import cratekeeper.cli_local as _local
 import cratekeeper.cli_pipeline as _pipeline
 import cratekeeper.cli_builder as _builder
@@ -55,6 +57,14 @@ def spotify_auth() -> None:
     run_auth_flow()
 
 
+@app.command("tidal-auth")
+def tidal_auth() -> None:
+    """Authenticate with Tidal — runs PKCE login flow and saves session."""
+    from cratekeeper.tidal.auth import run_tidal_auth
+
+    run_tidal_auth()
+
+
 @app.command()
 def wizard(
     ctx: typer.Context,
@@ -68,6 +78,7 @@ def wizard(
 
 # Register all domain command groups onto the shared app
 _spotify.register(app)
+_tidal.register(app)
 _local.register(app)
 _pipeline.register(app)
 _builder.register(app)

@@ -96,7 +96,8 @@ def register(app: typer.Typer) -> None:
         if missing:
             tidal_url_map: dict[str, str | None] = {}
             if tidal_urls:
-                from cratekeeper.spotify.tidal import get_tidal_session, resolve_tidal_urls
+                from cratekeeper.tidal.auth import get_tidal_session
+                from cratekeeper.tidal.client import resolve_tidal_urls
                 console.print(f"\nResolving Tidal URLs for [cyan]{len(missing)}[/cyan] missing tracks...")
                 session = get_tidal_session()
                 isrcs = [t.isrc for t in missing if t.isrc]
