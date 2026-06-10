@@ -13,3 +13,4 @@ data/
 backups/*.sql
 .cache
 .ruff_cache
+!cratekeeper/data

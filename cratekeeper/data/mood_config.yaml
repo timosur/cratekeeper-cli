@@ -1,0 +1,61 @@
+# Genre-specific mood thresholds for DJ classification.
+#
+# Moods are determined by audio features (BPM, energy, danceability) with
+# thresholds that vary by genre — e.g., "Chill" Techno is faster than "Chill" Pop.
+# The classifier checks each genre's thresholds from highest energy to lowest
+# (Peak first); first match wins.
+
+# Cross-genre override: low energy + low danceability is always "Romantic".
+romantic_threshold:
+  max_bpm: 110
+  max_energy: 0.3
+  max_danceability: 0.4
+
+# Default thresholds for genres without a specific profile.
+default_moods:
+  - { name: Chill, max_bpm: 105, max_energy: 0.35 }
+  - { name: Warm-Up, min_bpm: 95, max_bpm: 120, min_energy: 0.25, max_energy: 0.55 }
+  - { name: Groovy, min_bpm: 110, max_bpm: 135, min_energy: 0.4, max_energy: 0.7 }
+  - { name: Energetic, min_bpm: 120, min_energy: 0.6 }
+  - { name: Peak, min_bpm: 135, min_energy: 0.8 }
+
+# Genre-specific profiles, ordered low to high energy.
+mood_profiles:
+  "Techno / Melodic":
+    - { name: Chill, max_bpm: 122, max_energy: 0.45 }
+    - { name: Warm-Up, min_bpm: 118, max_bpm: 128, min_energy: 0.3, max_energy: 0.6 }
+    - { name: Groovy, min_bpm: 124, max_bpm: 134, min_energy: 0.5, max_energy: 0.75 }
+    - { name: Energetic, min_bpm: 130, max_bpm: 142, min_energy: 0.65 }
+    - { name: Peak, min_bpm: 138, min_energy: 0.8 }
+  "House / Dance":
+    - { name: Chill, max_bpm: 118, max_energy: 0.4 }
+    - { name: Warm-Up, min_bpm: 115, max_bpm: 124, min_energy: 0.3, max_energy: 0.6 }
+    - { name: Groovy, min_bpm: 120, max_bpm: 128, min_energy: 0.45, max_energy: 0.75 }
+    - { name: Energetic, min_bpm: 124, max_bpm: 134, min_energy: 0.6 }
+    - { name: Peak, min_bpm: 128, min_energy: 0.78 }
+  "Drum & Bass":
+    - { name: Chill, max_bpm: 168, max_energy: 0.45 }
+    - { name: Groovy, min_bpm: 165, max_bpm: 176, min_energy: 0.4, max_energy: 0.7 }
+    - { name: Energetic, min_bpm: 172, max_bpm: 180, min_energy: 0.6 }
+    - { name: Peak, min_bpm: 174, min_energy: 0.8 }
+  "Rock / Indie":
+    - { name: Chill, max_bpm: 105, max_energy: 0.4 }
+    - { name: Warm-Up, min_bpm: 95, max_bpm: 120, min_energy: 0.3, max_energy: 0.6 }
+    - { name: Groovy, min_bpm: 110, max_bpm: 135, min_energy: 0.45, max_energy: 0.75 }
+    - { name: Energetic, min_bpm: 125, min_energy: 0.65 }
+    - { name: Peak, min_bpm: 140, min_energy: 0.8 }
+  "Hip-Hop / R&B":
+    - { name: Chill, max_bpm: 90, max_energy: 0.35 }
+    - { name: Groovy, min_bpm: 80, max_bpm: 110, min_energy: 0.3, max_energy: 0.65 }
+    - { name: Energetic, min_bpm: 100, min_energy: 0.6 }
+    - { name: Peak, min_bpm: 120, min_energy: 0.75 }
+  "Latin / Reggaeton":
+    - { name: Chill, max_bpm: 95, max_energy: 0.4 }
+    - { name: Groovy, min_bpm: 88, max_bpm: 105, min_energy: 0.35, max_energy: 0.7 }
+    - { name: Energetic, min_bpm: 95, min_energy: 0.6 }
+    - { name: Peak, min_bpm: 110, min_energy: 0.78 }
+  "Schlager":
+    - { name: Chill, max_bpm: 110, max_energy: 0.4 }
+    - { name: Groovy, min_bpm: 105, max_bpm: 135, min_energy: 0.35, max_energy: 0.7 }
+    - { name: Energetic, min_bpm: 125, min_energy: 0.6 }
+    - { name: Peak, min_bpm: 140, min_energy: 0.75 }
