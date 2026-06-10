@@ -138,6 +138,40 @@ def register(app: typer.Typer) -> None:
         plan.save(input_file)
         console.print(f"Saved to [green]{input_file}[/green]")
 
+    @app.command(name="tag-prompt")
+    def tag_prompt(
+        input_file: Path = typer.Argument(help="Path to classified JSON (plan with analysis data)"),
+        output: Path | None = typer.Option(None, "--output", "-o", help="Write prompt to file instead of stdout"),
+    ) -> None:
+        """Generate a self-contained LLM prompt for DJ tag classification.
+
+        Prints a prompt that can be fed to any LLM to produce a JSON array
+        compatible with 'crate apply-tags'.
+        """
+        import sys
+        from rich.console import Console as _Console
+        from cratekeeper.pipeline.tag_prompt import build_tag_prompt
+
+        stderr_console = _Console(stderr=True)
+        plan = Plan.load(input_file)
+
+        # Warn if no tracks have analysis data
+        analyzed = [t for t in plan.tracks if t.bpm is not None or t.audio_mood]
+        if not analyzed:
+            stderr_console.print(
+                "[yellow]Warning: No tracks have analysis data (bpm/audio_mood). "
+                "Prompt will use available fields only.[/yellow]",
+            )
+
+        prompt_text = build_tag_prompt(plan.tracks)
+
+        if output:
+            output.write_text(prompt_text)
+            stderr_console.print(f"Prompt written to [green]{output}[/green]")
+        else:
+            # Print raw prompt to stdout (pipeable)
+            sys.stdout.write(prompt_text)
+
     @app.command(name="tag-untagged")
     def tag_untagged(
         input_file: Path = typer.Argument(help="Path to classified JSON"),

@@ -170,55 +170,29 @@ Sets preliminary energy classification (low/mid/high) from RMS energy. Show the 
 
 **Note**: TF models (~300 MB) are downloaded automatically to `~/.cache/cratekeeper/models` on first run.
 
-### Step 8: Classify Tags via Sub-Agent
+### Step 8: Classify Tags via LLM
 
-Use `runSubagent` to classify tags. Build a prompt from the classified JSON containing all track metadata and audio analysis, then apply results with `crate apply-tags`.
+Use `crate tag-prompt` to generate the classification prompt, feed it to an LLM, then apply results with `crate apply-tags`.
 
-**8a. Build the sub-agent prompt**
+**8a. Generate the LLM prompt**
 
-Read `data/<slug>.classified.json` and build a track summary for the prompt. For each track extract: id, name, artists, bucket, era, bpm, key, audio_energy, audio_mood, arousal, valence.
-
-**8b. Call the sub-agent**
-
-```
-runSubagent({
-  description: "Classify DJ tags for tracks",
-  prompt: `You are a professional wedding & event DJ assistant. Classify each track with structured tags.
-
-Valid values:
-- energy: low, mid, high
-- function: floorfiller, singalong, bridge, reset, closer, opener (pick 1-3)
-- crowd: mixed-age, older, younger, family (pick 1-2)
-- mood_tags: feelgood, emotional, euphoric, nostalgic, romantic, melancholic, dark, aggressive, uplifting, dreamy, funky, groovy (pick 1-3)
-- genre_suggestion: null, or one of the 18 genre buckets if the current bucket is clearly wrong
-
-Rules:
-- "floorfiller" = guaranteed dance track for a wide audience
-- "singalong" = tracks most people know the lyrics to
-- "bridge" = transitional track between energy levels or genres
-- "reset" = palate cleanser, calm moment
-- "opener"/"closer" = suitable for opening or closing a set segment
-- For crowd: "mixed-age" means works for all ages, "older" skews 40+, "younger" skews under 30
-- Use audio data (BPM, energy, mood scores, arousal/valence) to inform choices
-
-Tracks:
-${trackLines}
-
-Return ONLY a JSON array, one object per track:
-[{"id": "...", "energy": "...", "function": [...], "crowd": [...], "mood_tags": [...], "genre_suggestion": null}, ...]
-
-Do not include any explanation, just the JSON array.`
-})
+```bash
+crate tag-prompt data/<slug>.classified.json --output data/<slug>.tag-prompt.txt
 ```
 
-Where `trackLines` is built like:
-```
-1. id=ABC | "Song Name" by Artist | bucket=Pop | era=2020s | bpm=120 | key=C major | audio_energy=0.5 | mood: happy=0.8 party=0.6 | arousal=6.2 | valence=7.1
+This generates a self-contained prompt with all track context, vocabulary constraints, and the expected JSON output schema.
+
+**8b. Feed prompt to LLM**
+
+Feed the generated prompt to any LLM harness. For example:
+
+```bash
+cat data/<slug>.tag-prompt.txt | opencode run --model claude-opus-4-20250514 > data/<slug>.tags.json
 ```
 
-**8c. Save the response and apply**
+Or use any other LLM tool (Claude, GPT, etc.) — the prompt is self-contained.
 
-Save the sub-agent's JSON response to `data/<slug>.tags.json`, then run:
+**8c. Apply the tags**
 
 ```bash
 crate apply-tags data/<slug>.classified.json data/<slug>.tags.json

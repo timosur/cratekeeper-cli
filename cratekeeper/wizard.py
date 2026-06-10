@@ -279,9 +279,26 @@ def _run_analyze_mood(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str
 
 
 def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    from cratekeeper.pipeline.tag_prompt import build_tag_prompt
     from cratekeeper.pipeline.tag_writer import apply_tags_from_data
 
-    tags_file = Path(inputs["tags_file"])
+    # Generate prompt file so DJ knows what to feed the LLM
+    slug = plan.source_playlist_name.lower().replace(" ", "-") if plan.source_playlist_name else "plan"
+    prompt_path = Path(f"data/{slug}.tag-prompt.txt")
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+
+    prompt_text = build_tag_prompt(plan.tracks)
+    prompt_path.write_text(prompt_text)
+    console.print(f"\n  [cyan]Tag prompt saved to:[/cyan] [green]{prompt_path}[/green]")
+    console.print("  Feed this prompt to an LLM (e.g. opencode run) to generate the tags JSON.\n")
+
+    # Ask for tags file path (may already be in inputs from needs_input)
+    tags_file_str = inputs.get("tags_file") or Prompt.ask("  Path to tags JSON file")
+    tags_file = Path(tags_file_str)
+
+    if not tags_file.exists():
+        return plan, f"ERROR: Tags file not found: {tags_file}"
+
     tags_data = _json.loads(tags_file.read_text())
 
     if not isinstance(tags_data, list):
@@ -459,7 +476,7 @@ EVENT_PIPELINE: list[Step] = [
     Step(id="analyze-mood", label="Analyze audio features (essentia)", required=True,
          needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
     Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
-         needs_input=["tags_file"], run=_run_apply_tags, is_complete=_apply_tags_complete),
+         run=_run_apply_tags, is_complete=_apply_tags_complete),
     Step(id="tag", label="Write tags into audio files", required=True,
          run=_run_tag, is_complete=_tag_complete),
     Step(id="create-playlists", label="Create Spotify sub-playlists", required=False,
@@ -484,7 +501,7 @@ LIBRARY_PIPELINE: list[Step] = [
     Step(id="analyze-mood", label="Analyze audio features (essentia)", required=True,
          needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
     Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
-         needs_input=["tags_file"], run=_run_apply_tags, is_complete=_apply_tags_complete),
+         run=_run_apply_tags, is_complete=_apply_tags_complete),
     Step(id="tag", label="Write tags into audio files", required=True,
          run=_run_tag, is_complete=_tag_complete),
     Step(id="review-library", label="Review tracks for master library", required=True,
