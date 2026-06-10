@@ -11,11 +11,10 @@ import spotipy
 
 from cratekeeper.models import Track
 
-# Search order: XDG config → ~/.cratekeeper fallback
+# Config stored at XDG config path
 _XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 _CONFIG_SEARCH_PATHS = [
     _XDG_CONFIG / "cratekeeper" / "spotify-config.json",
-    Path.home() / ".cratekeeper" / "spotify-config.json",
 ]
 
 
