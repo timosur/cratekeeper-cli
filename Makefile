@@ -30,7 +30,13 @@ endif
 
 # ── Targets ──────────────────────────────────────────────────────────
 
-.PHONY: help venv install test lint format check db db-stop docker-build docker-run clean
+# ── DB backup config ─────────────────────────────────────────────────
+BACKUP_DIR  := backups
+DB_USER     := dj
+DB_NAME     := djlib
+BACKUP_FILE := $(BACKUP_DIR)/$(DB_NAME)_$(shell date +%Y%m%d_%H%M%S).sql
+
+.PHONY: help venv install test lint format check db db-stop db-backup db-restore docker-build docker-run clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -68,6 +74,23 @@ db: ## Start Postgres (docker compose)
 
 db-stop: ## Stop all docker compose services
 	docker compose down
+
+db-backup: ## Dump database to backups/<db>_<timestamp>.sql (db must be running)
+	@mkdir -p $(BACKUP_DIR)
+	@echo "Backing up $(DB_NAME) → $(BACKUP_FILE)"
+	docker compose exec -T db pg_dump -U $(DB_USER) --no-password $(DB_NAME) > $(BACKUP_FILE)
+	@echo "Done: $(BACKUP_FILE)"
+
+db-restore: ## Restore from BACKUP=<file> (e.g. make db-restore BACKUP=backups/djlib_20260101_120000.sql)
+	@if [ -z "$(BACKUP)" ]; then \
+		echo "ERROR: specify a backup file: make db-restore BACKUP=backups/<file>.sql"; exit 1; \
+	fi
+	@if [ ! -f "$(BACKUP)" ]; then \
+		echo "ERROR: $(BACKUP) not found"; exit 1; \
+	fi
+	@echo "Restoring $(DB_NAME) from $(BACKUP)…"
+	docker compose exec -T db psql -U $(DB_USER) -d $(DB_NAME) < $(BACKUP)
+	@echo "Done."
 
 docker-build: ## Build Docker image
 	docker compose build
