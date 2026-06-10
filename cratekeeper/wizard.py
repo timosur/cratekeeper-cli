@@ -631,7 +631,7 @@ def run_wizard(profile: Any, plan_path: Path | None = None) -> None:
             if plan is not None and plan_path is not None:
                 plan.save(plan_path)
                 console.print(f"  [dim]Progress saved to {plan_path}[/dim]")
-            raise
+            break
 
         # Continue prompt (unless last step)
         if i < len(pipeline) - 1:

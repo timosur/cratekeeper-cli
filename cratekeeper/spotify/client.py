@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import os
+
 import spotipy
 
 from cratekeeper.models import Track
 
-# Look for spotify-config.json relative to the project root
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Search order: project-local → XDG config → ~/.config fallback
+_XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 _CONFIG_SEARCH_PATHS = [
-    Path(__file__).resolve().parent.parent.parent / "spotify-mcp" / "spotify-config.json",
+    _PROJECT_ROOT / "spotify-mcp" / "spotify-config.json",
+    _XDG_CONFIG / "cratekeeper" / "spotify-config.json",
+    Path.home() / ".cratekeeper" / "spotify-config.json",
 ]
 
 
@@ -20,8 +27,10 @@ def _find_config() -> Path:
         if p.exists():
             return p
     raise FileNotFoundError(
-        "spotify-config.json not found. Expected at: "
-        + ", ".join(str(p) for p in _CONFIG_SEARCH_PATHS)
+        "spotify-config.json not found. Checked:\n"
+        + "\n".join(f"  {p}" for p in _CONFIG_SEARCH_PATHS)
+        + "\n\nRun `cd spotify-mcp && npm run auth` to authenticate, or copy "
+        "spotify-config.json to one of the above locations."
     )
 
 
