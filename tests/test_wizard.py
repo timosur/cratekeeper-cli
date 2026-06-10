@@ -45,7 +45,8 @@ class TestPipelineDefinitions:
         assert len(EVENT_PIPELINE) == 11
 
     def test_library_pipeline_step_count(self):
-        assert len(LIBRARY_PIPELINE) == 11
+        # classify and match removed: import-library already classifies and sets local_path
+        assert len(LIBRARY_PIPELINE) == 9
 
     def test_event_pipeline_ordering(self):
         ids = [s.id for s in EVENT_PIPELINE]
@@ -58,7 +59,7 @@ class TestPipelineDefinitions:
     def test_library_pipeline_ordering(self):
         ids = [s.id for s in LIBRARY_PIPELINE]
         assert ids == [
-            "scan", "import-library", "classify", "enrich", "match",
+            "scan", "import-library", "enrich",
             "analyze-mood", "apply-tags", "tag",
             "review-library", "build-library", "export-rekordbox",
         ]

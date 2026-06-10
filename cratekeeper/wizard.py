@@ -471,16 +471,15 @@ EVENT_PIPELINE: list[Step] = [
 ]
 
 LIBRARY_PIPELINE: list[Step] = [
+    # scan → index local directory into PostgreSQL
     Step(id="scan", label="Scan local music directory", required=True,
          needs_input=["music_directory"], run=_run_scan, is_complete=_scan_complete),
+    # import-library → pull tracks from PostgreSQL, set local_path on each, classify
+    # (no separate classify or match step: tracks ARE the local files)
     Step(id="import-library", label="Import scanned files into profile", required=True,
          needs_input=["music_directory"], run=_run_import_library, is_complete=_import_library_complete),
-    Step(id="classify", label="Classify into genre buckets", required=True,
-         run=_run_classify, is_complete=_classify_complete),
     Step(id="enrich", label="Enrich genres via MusicBrainz", required=False,
          run=_run_enrich, is_complete=_enrich_complete),
-    Step(id="match", label="Match tracks to local audio files", required=True,
-         run=_run_match, is_complete=_match_complete),
     Step(id="analyze-mood", label="Analyze audio features (essentia)", required=True,
          needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
     Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
