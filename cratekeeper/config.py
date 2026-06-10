@@ -260,18 +260,20 @@ def resolve_profile(name: str | None = None, config_path: Path | None = None) ->
     """Resolve the active profile.
 
     Precedence: ``name`` (e.g. ``--profile``) -> config ``active_profile`` ->
-    first defined profile -> implicit ``commercial`` profile when no config
-    file exists.
+    first defined profile.
+
+    When no config file exists, writes the default config automatically and
+    uses its first profile (commercial).
     """
-    settings = load_settings(config_path)
+    path = config_path or DEFAULT_CONFIG_PATH
+    settings = load_settings(path)
 
     if settings is None:
-        if name is None or name == "commercial":
-            return implicit_commercial_profile()
-        raise ConfigError(
-            f"Profile {name!r} requested but no config file exists. "
-            f"Run 'crate profile init' to create one."
-        )
+        # No config exists — write defaults and load them
+        write_default_config(path)
+        settings = load_settings(path)
+        if settings is None:
+            raise ConfigError("Failed to create default config. Check permissions.")
 
     if name is not None:
         if name not in settings.profiles:
@@ -284,8 +286,7 @@ def resolve_profile(name: str | None = None, config_path: Path | None = None) ->
         return settings.profiles[settings.active_profile]
 
     # First defined profile (insertion order preserved by dict).
-    first = next(iter(settings.profiles.values()))
-    return first
+    return next(iter(settings.profiles.values()))
 
 
 def active_profile_name(settings: Settings) -> str:

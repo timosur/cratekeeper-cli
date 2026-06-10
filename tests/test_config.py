@@ -9,7 +9,6 @@ import pytest
 from cratekeeper.config import (
     ConfigError,
     Profile,
-    implicit_commercial_profile,
     load_settings,
     resolve_profile,
     set_active_profile,
@@ -23,12 +22,14 @@ def _write(tmp_path: Path, body: str) -> Path:
     return p
 
 
-# --- No config => implicit commercial profile ---
+# --- No config => auto-write default config ---
 
-def test_no_config_returns_implicit_commercial(tmp_path: Path):
-    missing = tmp_path / "nope.toml"
-    assert load_settings(missing) is None
+def test_no_config_auto_writes_default_and_uses_commercial(tmp_path: Path):
+    missing = tmp_path / "config.toml"
+    assert not missing.exists()
     prof = resolve_profile(None, config_path=missing)
+    # Config was written automatically
+    assert missing.exists()
     assert prof.name == "commercial"
     assert prof.tag_format == "structured_comment"
     assert prof.required_fields == ["energy", "function", "crowd", "mood_tags"]
@@ -36,9 +37,10 @@ def test_no_config_returns_implicit_commercial(tmp_path: Path):
 
 
 def test_no_config_unknown_profile_errors(tmp_path: Path):
-    missing = tmp_path / "nope.toml"
+    missing = tmp_path / "config.toml"
+    # auto-init writes commercial + electronic; requesting an unknown name still errors
     with pytest.raises(ConfigError):
-        resolve_profile("electronic", config_path=missing)
+        resolve_profile("nonexistent", config_path=missing)
 
 
 # --- Loading + validation ---
@@ -154,8 +156,9 @@ def test_set_active_unknown_profile_raises(tmp_path: Path):
         set_active_profile("ghost", config_path=path)
 
 
-def test_implicit_commercial_matches_defaults():
-    prof = implicit_commercial_profile()
+def test_default_config_commercial_matches_expected(tmp_path: Path):
+    missing = tmp_path / "config.toml"
+    prof = resolve_profile(None, config_path=missing)
     assert isinstance(prof, Profile)
     assert prof.dj_software == "djay_pro"
     assert prof.buckets  # non-empty
