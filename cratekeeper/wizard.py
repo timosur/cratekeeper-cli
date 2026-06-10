@@ -297,12 +297,12 @@ def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
     tags_file = Path(tags_file_str)
 
     if not tags_file.exists():
-        return plan, f"ERROR: Tags file not found: {tags_file}"
+        raise FileNotFoundError(f"Tags file not found: {tags_file}")
 
     tags_data = _json.loads(tags_file.read_text())
 
     if not isinstance(tags_data, list):
-        return plan, "ERROR: Tags file must contain a JSON array"
+        raise ValueError("Tags file must contain a JSON array")
 
     applied, warnings = apply_tags_from_data(plan.tracks, tags_data)
     return plan, f"Applied tags to {applied} of {len(tags_data)} tracks"
@@ -324,7 +324,7 @@ def _run_review_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, s
     from cratekeeper.builder.review_library import candidate_tracks, is_admission_complete, undecided_candidates
 
     if not sys.stdin.isatty():
-        return plan, "ERROR: review-library requires an interactive terminal"
+        raise RuntimeError("review-library requires an interactive terminal")
 
     candidates = candidate_tracks(plan.tracks)
     pending = undecided_candidates(plan.tracks)
