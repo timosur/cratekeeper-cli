@@ -131,7 +131,7 @@ def implicit_commercial_profile() -> Profile:
         buckets=list(preset.buckets),
         fallback=preset.fallback,
         library_target=DEFAULT_LIBRARY_TARGET,
-        data_dir=_legacy_data_dir(),
+        data_dir=_XDG_CONFIG / "cratekeeper" / "commercial" / "data",
         required_fields=list(DEFAULT_REQUIRED_FIELDS),
         dj_software="djay_pro",
         tag_format="structured_comment",
