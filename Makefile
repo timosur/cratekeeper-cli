@@ -2,13 +2,13 @@
 SHELL := /bin/bash
 
 # ── Paths ────────────────────────────────────────────────────────────
-PKG_DIR   := cratekeeper-cli
 VENV      := .venv
 BIN       := $(VENV)/bin
 PYTHON    := $(BIN)/python
 PIP       := $(BIN)/pip
 PYTEST    := $(BIN)/pytest
 RUFF      := $(BIN)/ruff
+PKG_DIR   := .
 
 # ── Python discovery (first available ≥3.11) ────────────────────────
 SYSTEM_PYTHON := $(shell \
@@ -44,7 +44,7 @@ $(VENV)/pyvenv.cfg:
 	$(SYSTEM_PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip
 
-venv: $(VENV)/pyvenv.cfg ## Create .venv and install package + dev deps
+setup: $(VENV)/pyvenv.cfg ## Create .venv and install package + dev deps
 	$(PIP) install -e "$(PKG_DIR)[dev]"
 	@echo ""
 	@echo "Done. Activate with:  source $(VENV)/bin/activate"
@@ -53,7 +53,7 @@ install: ## Re-install package + dev deps into existing venv
 	$(PIP) install -e "$(PKG_DIR)[dev]"
 
 test: ## Run pytest
-	cd $(PKG_DIR) && ../$(PYTEST) $(ARGS)
+	$(PYTEST) $(ARGS)
 
 lint: ## Run ruff check
 	$(RUFF) check $(PKG_DIR)
