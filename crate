@@ -10,6 +10,6 @@ if [ ! -x "$VENV/bin/crate" ]; then
     exit 1
 fi
 
-export DATABASE_URL=postgresql://dj:dj@db:5432/djlib
+export DATABASE_URL=postgresql://dj:dj@127.0.0.1:5432/djlib
 
 exec "$VENV/bin/crate" "$@"
