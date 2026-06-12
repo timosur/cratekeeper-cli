@@ -375,6 +375,7 @@ def analyze_tracks(
     progress_callback=None,
     use_tf: bool = True,
     force: bool = False,
+    cache_repo=None,
 ) -> int:
     """Analyze audio features for tracks that have a local_path set.
 
@@ -382,7 +383,13 @@ def analyze_tracks(
     audio_mood, arousal, valence, and legacy mood field.
     Tracks that already have analysis results are skipped unless ``force``
     is True. Returns number of tracks analyzed.
+
+    If ``cache_repo`` is provided (AnalysisCacheRepository), results are
+    looked up by content hash before running essentia, and stored after
+    fresh analysis. The ``--force`` flag bypasses cache lookup but still
+    stores fresh results.
     """
+    from cratekeeper.analysis.content_hasher import compute_content_hash
     from cratekeeper.analysis.mood_config import classify_mood
 
     candidates = [
@@ -394,12 +401,38 @@ def analyze_tracks(
 
     for i, track in enumerate(candidates):
         try:
-            features = analyze_track(
-                track.local_path,
-                genre=track.bucket,
-                use_tf=use_tf,
-                require_tf=use_tf,
-            )
+            # Compute content hash for cache lookup/store
+            content_hash = None
+            if cache_repo is not None:
+                try:
+                    content_hash = compute_content_hash(track.local_path)
+                except Exception:
+                    pass  # hash failure → skip cache, proceed with analysis
+
+            # Cache lookup (skip if --force)
+            features = None
+            if cache_repo is not None and content_hash and not force:
+                try:
+                    features = cache_repo.get(content_hash)
+                except Exception as cache_err:
+                    import sys
+                    print(f"[mood_analyzer] Cache lookup failed: {cache_err}", file=sys.stderr)
+
+            # Cache miss → run essentia analysis
+            if features is None:
+                features = analyze_track(
+                    track.local_path,
+                    genre=track.bucket,
+                    use_tf=use_tf,
+                    require_tf=use_tf,
+                )
+                # Store in cache
+                if cache_repo is not None and content_hash:
+                    try:
+                        cache_repo.store(content_hash, features)
+                    except Exception as cache_err:
+                        import sys
+                        print(f"[mood_analyzer] Cache store failed: {cache_err}", file=sys.stderr)
 
             # Populate Track fields from audio analysis
             track.bpm = features.bpm

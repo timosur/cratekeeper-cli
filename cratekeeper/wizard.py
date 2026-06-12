@@ -309,13 +309,25 @@ def _run_analyze_mood(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str
     with_path = sum(1 for t in plan.tracks if t.local_path)
     console.print(f"Analyzing {with_path} tracks with essentia...")
 
+    # Initialize analysis cache (graceful fallback if DB unavailable)
+    cache_repo = None
+    try:
+        from cratekeeper.local.pg_analysis_cache import PostgresAnalysisCacheRepository
+        cache_repo = PostgresAnalysisCacheRepository()
+    except Exception as cache_err:
+        console.print(f"[yellow]Analysis cache unavailable ({cache_err}), proceeding without cache[/yellow]")
+
     def _progress(i, total, track, mood, error):
         if error:
             console.print(f"  [{i}/{total}] {track.display_name()} → [red]{error}[/red]")
         elif track.bpm:
             console.print(f"  [{i}/{total}] {track.display_name()} → {track.bpm} BPM, {track.key}")
 
-    analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=False)
+    analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=False, cache_repo=cache_repo)
+
+    if cache_repo:
+        cache_repo.close()
+
     return plan, f"Analyzed {analyzed} of {with_path} tracks"
 
 

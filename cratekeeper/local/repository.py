@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from cratekeeper.analysis.mood_analyzer import AudioFeatures
 
 
 @dataclass
@@ -116,6 +119,26 @@ class TrackRepository(Protocol):
         ...
 
 
+@runtime_checkable
+class AnalysisCacheRepository(Protocol):
+    """Protocol for persistent audio analysis cache.
+
+    Stores and retrieves AudioFeatures keyed by content hash (SHA256).
+    """
+
+    def get(self, content_hash: str) -> "AudioFeatures | None":
+        """Retrieve cached analysis results for the given content hash, or None."""
+        ...
+
+    def store(self, content_hash: str, features: "AudioFeatures") -> None:
+        """Store analysis results for the given content hash (upsert)."""
+        ...
+
+    def close(self) -> None:
+        """Release underlying resources."""
+        ...
+
+
 # ---------------------------------------------------------------------------
 # In-memory implementation (for tests and local dev without a DB)
 # ---------------------------------------------------------------------------
@@ -192,3 +215,23 @@ class InMemoryTrackRepository:
 
     def close(self) -> None:
         pass  # nothing to release
+
+
+# ---------------------------------------------------------------------------
+# In-memory analysis cache (for tests and local dev without a DB)
+# ---------------------------------------------------------------------------
+
+class InMemoryAnalysisCacheRepository:
+    """AnalysisCacheRepository backed by a plain dict. No database required."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, "AudioFeatures"] = {}
+
+    def get(self, content_hash: str) -> "AudioFeatures | None":
+        return self._cache.get(content_hash)
+
+    def store(self, content_hash: str, features: "AudioFeatures") -> None:
+        self._cache[content_hash] = features
+
+    def close(self) -> None:
+        pass

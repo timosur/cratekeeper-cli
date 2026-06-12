@@ -40,6 +40,14 @@ def register(app: typer.Typer) -> None:
         if already and not force:
             console.print(f"Skipping [yellow]{already}[/yellow] already-analyzed tracks (use --force to re-analyze)")
 
+        # Initialize analysis cache (graceful fallback if DB unavailable)
+        cache_repo = None
+        try:
+            from cratekeeper.local.pg_analysis_cache import PostgresAnalysisCacheRepository
+            cache_repo = PostgresAnalysisCacheRepository()
+        except Exception as cache_err:
+            console.print(f"[yellow]Analysis cache unavailable ({cache_err}), proceeding without cache[/yellow]")
+
         console.print("Analyzing audio features with essentia...")
 
         def _progress(i, total, track, mood, error):
@@ -55,8 +63,11 @@ def register(app: typer.Typer) -> None:
                     parts.append(f"energy={track.energy}")
                 console.print(f"  [{i}/{total}] {track.display_name()} → [cyan]{', '.join(parts)}[/cyan]")
 
-        analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=force)
+        analyzed = analyze_tracks(plan.tracks, progress_callback=_progress, force=force, cache_repo=cache_repo)
         console.print(f"\nAnalyzed [green]{analyzed}[/green] of {with_path} tracks")
+
+        if cache_repo:
+            cache_repo.close()
 
         energies: dict[str, int] = {}
         for t in plan.tracks:
