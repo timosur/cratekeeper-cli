@@ -340,7 +340,7 @@ def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
     prompt_path = Path(f"data/{slug}.tag-prompt.txt")
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    prompt_text = build_tag_prompt(plan.tracks)
+    prompt_text = build_tag_prompt(plan.tracks, tag_config=profile.tag_config)
     prompt_path.write_text(prompt_text)
     console.print(f"\n  [cyan]Tag prompt saved to:[/cyan] [green]{prompt_path}[/green]")
     console.print("  Feed this prompt to an LLM (e.g. opencode run) to generate the tags JSON.\n")
@@ -357,7 +357,10 @@ def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
     if not isinstance(tags_data, list):
         raise ValueError("Tags file must contain a JSON array")
 
-    applied, warnings = apply_tags_from_data(plan.tracks, tags_data)
+    applied, warnings, errors = apply_tags_from_data(plan.tracks, tags_data, tag_config=profile.tag_config)
+    if errors:
+        for err in errors:
+            console.print(f"  [yellow]{err}[/yellow]")
     return plan, f"Applied tags to {applied} of {len(tags_data)} tracks"
 
 

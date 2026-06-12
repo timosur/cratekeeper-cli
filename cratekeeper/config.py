@@ -24,10 +24,61 @@ _XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 DEFAULT_CONFIG_PATH = _XDG_CONFIG / "cratekeeper" / "config.toml"
 
 TAG_FORMATS = {"structured_comment", "id3_only"}
+TAG_FIELD_TYPES = {"single", "list"}
 DJ_SOFTWARE = {"djay_pro", "rekordbox"}
 SORT_DIRECTIONS = {"asc", "desc"}
 DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
 DEFAULT_LIBRARY_TARGET = Path.home() / "Music" / "Library"
+
+
+@dataclass
+class TagFieldDef:
+    """Definition of a single tag field within a profile's vocabulary."""
+
+    name: str
+    type: str  # "single" | "list"
+    values: list[str]
+    pick: tuple[int, int] | None = None  # (min, max) for list fields
+
+
+@dataclass
+class TagConfig:
+    """Per-profile tag vocabulary and classification guidance."""
+
+    fields: dict[str, TagFieldDef] = field(default_factory=dict)
+    guidance: str = ""
+
+
+def default_tag_config() -> TagConfig:
+    """Build the default TagConfig matching the legacy hardcoded vocabulary."""
+    return TagConfig(
+        fields={
+            "energy": TagFieldDef(name="energy", type="single", values=["low", "mid", "high"]),
+            "function": TagFieldDef(
+                name="function", type="list",
+                values=["floorfiller", "singalong", "bridge", "reset", "closer", "opener"],
+                pick=(1, 3),
+            ),
+            "crowd": TagFieldDef(
+                name="crowd", type="list",
+                values=["mixed-age", "older", "younger", "family"],
+                pick=(1, 2),
+            ),
+            "mood_tags": TagFieldDef(
+                name="mood_tags", type="list",
+                values=[
+                    "feelgood", "emotional", "euphoric", "nostalgic",
+                    "romantic", "melancholic", "dark", "aggressive",
+                    "uplifting", "dreamy", "funky", "groovy",
+                ],
+                pick=(1, 4),
+            ),
+        },
+        guidance=(
+            "Classify tracks for a commercial DJ set (weddings, parties, corporate events). "
+            "Consider energy, singability, crowd demographics, and emotional tone."
+        ),
+    )
 
 
 class ConfigError(Exception):
@@ -52,13 +103,35 @@ required_fields = ["energy", "function", "crowd", "mood_tags"]
 [profiles.electronic]
 buckets = "electronic"
 dj_software = "rekordbox"
-tag_format = "id3_only"
+tag_format = "structured_comment"
 library_target = "~/Music/Library-Electronic"
-required_fields = ["energy"]
+required_fields = ["energy", "function", "mood_tags", "mix_traits"]
 
 [profiles.electronic.sort]
 keys = ["bpm"]
 direction = "asc"
+
+[profiles.electronic.tags]
+guidance = "Classify for a club/festival DJ set. Think in terms of set position and energy arc."
+
+[profiles.electronic.tags.fields.energy]
+type = "single"
+values = ["low", "mid", "high"]
+
+[profiles.electronic.tags.fields.function]
+type = "list"
+pick = [1, 3]
+values = ["warm-up", "build", "peak-time", "breakdown", "cooldown", "closer"]
+
+[profiles.electronic.tags.fields.mood_tags]
+type = "list"
+pick = [1, 4]
+values = ["hypnotic", "driving", "atmospheric", "deep", "acidic", "industrial", "melodic", "dark", "euphoric", "groovy"]
+
+[profiles.electronic.tags.fields.mix_traits]
+type = "list"
+pick = [1, 3]
+values = ["loop-friendly", "long-intro", "long-outro", "vocal", "instrumental", "acapella-section"]
 '''
 
 
@@ -88,6 +161,7 @@ class Profile:
     dj_software: str = "djay_pro"
     tag_format: str = "structured_comment"
     sort: SortRule | None = None
+    tag_config: TagConfig = field(default_factory=default_tag_config)
 
     def plan_path(self, name: str) -> Path:
         """Return the default JSON plan path for a playlist or source name.
@@ -102,6 +176,13 @@ class Profile:
 
     def describe(self) -> dict:
         """Return a JSON-friendly summary for ``crate profile show``."""
+        tag_vocab = {}
+        for fname, fdef in self.tag_config.fields.items():
+            entry: dict = {"type": fdef.type, "values": fdef.values}
+            if fdef.pick:
+                entry["pick"] = list(fdef.pick)
+            tag_vocab[fname] = entry
+
         return {
             "name": self.name,
             "buckets": [b.name for b in self.buckets],
@@ -112,6 +193,8 @@ class Profile:
             "dj_software": self.dj_software,
             "tag_format": self.tag_format,
             "sort": None if self.sort is None else {"keys": list(self.sort.keys), "direction": self.sort.direction},
+            "tag_vocabulary": tag_vocab,
+            "tag_guidance": self.tag_config.guidance,
         }
 
 
@@ -136,6 +219,7 @@ def implicit_commercial_profile() -> Profile:
         dj_software="djay_pro",
         tag_format="structured_comment",
         sort=None,
+        tag_config=default_tag_config(),
     )
 
 
@@ -177,6 +261,64 @@ def _parse_sort(raw, profile_name: str) -> SortRule | None:
     return SortRule(keys=keys, direction=direction)
 
 
+def _parse_tag_config(raw: dict | None, profile_name: str) -> TagConfig:
+    """Parse a ``[profiles.<name>.tags]`` TOML section into a TagConfig.
+
+    Returns the default TagConfig when *raw* is None (section absent).
+    """
+    if raw is None:
+        return default_tag_config()
+
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Profile {profile_name!r}: 'tags' must be a table")
+
+    guidance = raw.get("guidance", "")
+    if not isinstance(guidance, str):
+        raise ConfigError(f"Profile {profile_name!r}: tags.guidance must be a string")
+
+    fields_raw = raw.get("fields", {})
+    if not isinstance(fields_raw, dict):
+        raise ConfigError(f"Profile {profile_name!r}: tags.fields must be a table")
+
+    if not fields_raw:
+        raise ConfigError(f"Profile {profile_name!r}: tags.fields must define at least one field")
+
+    fields: dict[str, TagFieldDef] = {}
+    for fname, fdef in fields_raw.items():
+        if not isinstance(fdef, dict):
+            raise ConfigError(f"Profile {profile_name!r}: tags.fields.{fname} must be a table")
+
+        ftype = fdef.get("type", "list")
+        if ftype not in TAG_FIELD_TYPES:
+            raise ConfigError(
+                f"Profile {profile_name!r}: tags.fields.{fname}.type {ftype!r} "
+                f"must be one of {sorted(TAG_FIELD_TYPES)}"
+            )
+
+        values = fdef.get("values", [])
+        if not isinstance(values, list) or not values:
+            raise ConfigError(
+                f"Profile {profile_name!r}: tags.fields.{fname}.values must be a non-empty list"
+            )
+
+        pick: tuple[int, int] | None = None
+        pick_raw = fdef.get("pick")
+        if pick_raw is not None:
+            if not isinstance(pick_raw, list) or len(pick_raw) != 2:
+                raise ConfigError(
+                    f"Profile {profile_name!r}: tags.fields.{fname}.pick must be [min, max]"
+                )
+            pick = (int(pick_raw[0]), int(pick_raw[1]))
+            if pick[0] < 1 or pick[1] < pick[0]:
+                raise ConfigError(
+                    f"Profile {profile_name!r}: tags.fields.{fname}.pick must satisfy 1 <= min <= max"
+                )
+
+        fields[fname] = TagFieldDef(name=fname, type=ftype, values=values, pick=pick)
+
+    return TagConfig(fields=fields, guidance=guidance)
+
+
 def _build_profile(name: str, raw: dict) -> Profile:
     """Build a Profile from a raw ``[profiles.<name>]`` table."""
     if not isinstance(raw, dict):
@@ -212,6 +354,7 @@ def _build_profile(name: str, raw: dict) -> Profile:
 
     required_fields = list(raw.get("required_fields", DEFAULT_REQUIRED_FIELDS))
     sort = _parse_sort(raw.get("sort"), name)
+    tag_config = _parse_tag_config(raw.get("tags"), name)
 
     return Profile(
         name=name,
@@ -223,6 +366,7 @@ def _build_profile(name: str, raw: dict) -> Profile:
         dj_software=dj_software,
         tag_format=tag_format,
         sort=sort,
+        tag_config=tag_config,
     )
 
 

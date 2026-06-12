@@ -1,9 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Per-profile tag vocabulary configuration
-
-Feature: Profile tag configuration
-Rule: Each profile MAY define a `[profiles.<name>.tags]` section with field definitions and classification guidance that drives prompt generation and validation
+The system SHALL parse an optional `[profiles.<name>.tags]` TOML section containing field definitions (name, type, values, pick range) and classification guidance text. When absent, the system SHALL use the default commercial vocabulary. Each profile MAY define its own complete tag vocabulary that drives prompt generation and validation.
 
 #### Scenario: Profile with custom tag fields
 - **GIVEN** a config file where the `electronic` profile defines `[profiles.electronic.tags]` with fields `energy`, `function`, `mood_tags`, and `mix_traits`

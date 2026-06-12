@@ -29,6 +29,7 @@ context: |
 rules:
   proposal:
     - Must use grill-me skill
+    - Must use ask questions tool for asking questions
   design:
     - Must use c4-diagrams skill
   adr:

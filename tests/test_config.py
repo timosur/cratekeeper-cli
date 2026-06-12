@@ -9,6 +9,10 @@ import pytest
 from cratekeeper.config import (
     ConfigError,
     Profile,
+    TagConfig,
+    TagFieldDef,
+    _parse_tag_config,
+    default_tag_config,
     load_settings,
     resolve_profile,
     set_active_profile,
@@ -162,3 +166,91 @@ def test_default_config_commercial_matches_expected(tmp_path: Path):
     assert isinstance(prof, Profile)
     assert prof.dj_software == "djay_pro"
     assert prof.buckets  # non-empty
+
+
+# --- TagConfig parsing ---
+
+def test_parse_tag_config_electronic(tmp_path: Path):
+    """7.1: _parse_tag_config with valid electronic config."""
+    raw = {
+        "guidance": "Classify for a club DJ set.",
+        "fields": {
+            "energy": {"type": "single", "values": ["low", "mid", "high"]},
+            "function": {"type": "list", "pick": [1, 3], "values": ["warm-up", "build", "peak-time"]},
+            "mood_tags": {"type": "list", "pick": [1, 4], "values": ["hypnotic", "driving", "dark"]},
+            "mix_traits": {"type": "list", "pick": [1, 3], "values": ["loop-friendly", "long-intro"]},
+        },
+    }
+    tc = _parse_tag_config(raw, "electronic")
+    assert tc.guidance == "Classify for a club DJ set."
+    assert len(tc.fields) == 4
+    assert tc.fields["energy"].type == "single"
+    assert tc.fields["function"].pick == (1, 3)
+    assert "loop-friendly" in tc.fields["mix_traits"].values
+
+
+def test_parse_tag_config_missing_section_returns_defaults():
+    """7.2: _parse_tag_config with None returns defaults."""
+    tc = _parse_tag_config(None, "commercial")
+    default = default_tag_config()
+    assert tc.fields.keys() == default.fields.keys()
+    assert tc.fields["energy"].values == default.fields["energy"].values
+
+
+def test_parse_tag_config_invalid_type_raises():
+    """7.3: config validation rejects invalid type."""
+    raw = {"fields": {"x": {"type": "number", "values": ["a", "b"]}}}
+    with pytest.raises(ConfigError, match="must be one of"):
+        _parse_tag_config(raw, "test")
+
+
+def test_parse_tag_config_empty_values_raises():
+    """7.3: config validation rejects empty values."""
+    raw = {"fields": {"x": {"type": "single", "values": []}}}
+    with pytest.raises(ConfigError, match="non-empty list"):
+        _parse_tag_config(raw, "test")
+
+
+def test_parse_tag_config_bad_pick_raises():
+    """7.3: config validation rejects bad pick ranges."""
+    raw = {"fields": {"x": {"type": "list", "values": ["a"], "pick": [3, 1]}}}
+    with pytest.raises(ConfigError, match="1 <= min <= max"):
+        _parse_tag_config(raw, "test")
+
+
+def test_parse_tag_config_no_fields_raises():
+    """7.3: config validation rejects tags section with no fields."""
+    raw = {"fields": {}}
+    with pytest.raises(ConfigError, match="at least one field"):
+        _parse_tag_config(raw, "test")
+
+
+def test_electronic_profile_has_tag_config(tmp_path: Path):
+    """Default config template electronic profile parses tag config."""
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    prof = resolve_profile("electronic", config_path=path)
+    assert "function" in prof.tag_config.fields
+    assert "warm-up" in prof.tag_config.fields["function"].values
+    assert "mix_traits" in prof.tag_config.fields
+    assert prof.tag_config.guidance != ""
+
+
+def test_commercial_profile_uses_defaults(tmp_path: Path):
+    """Commercial profile without tags section gets default vocabulary."""
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    prof = resolve_profile("commercial", config_path=path)
+    assert "crowd" in prof.tag_config.fields
+    assert "floorfiller" in prof.tag_config.fields["function"].values
+
+
+def test_profile_describe_includes_tag_vocab(tmp_path: Path):
+    """Profile.describe() includes tag vocabulary and guidance."""
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    prof = resolve_profile("electronic", config_path=path)
+    desc = prof.describe()
+    assert "tag_vocabulary" in desc
+    assert "mix_traits" in desc["tag_vocabulary"]
+    assert "tag_guidance" in desc

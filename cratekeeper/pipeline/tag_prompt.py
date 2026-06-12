@@ -6,13 +6,12 @@ with ``crate apply-tags``.  No LLM dependency — just text generation.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from cratekeeper.models import Track
-from cratekeeper.pipeline.tag_writer import (
-    VALID_ENERGY,
-    VALID_FUNCTION,
-    VALID_CROWD,
-    VALID_MOOD,
-)
+
+if TYPE_CHECKING:
+    from cratekeeper.config import TagConfig
 
 
 def _track_context_line(track: Track) -> str:
@@ -41,35 +40,47 @@ def _track_context_line(track: Track) -> str:
     )
 
 
-def build_tag_prompt(tracks: list[Track]) -> str:
+def build_tag_prompt(tracks: list[Track], tag_config: "TagConfig | None" = None) -> str:
     """Build a self-contained LLM prompt for tag classification.
 
     The resulting prompt includes:
     - All track context (analysis data)
-    - Vocabulary constraints for each tag field
+    - Vocabulary constraints from the profile's TagConfig
     - The exact JSON output schema expected by ``crate apply-tags``
+    - Classification guidance from TagConfig
     - Instruction to return only valid JSON
     """
-    # Vocabulary section
-    vocab = (
-        "## Valid Vocabulary\n\n"
-        f"- energy: {sorted(VALID_ENERGY)}\n"
-        f"- function (pick 1-3): {sorted(VALID_FUNCTION)}\n"
-        f"- crowd (pick 1-2): {sorted(VALID_CROWD)}\n"
-        f"- mood_tags (pick 1-4): {sorted(VALID_MOOD)}\n"
-    )
+    from cratekeeper.config import default_tag_config
 
-    # JSON schema section
+    if tag_config is None:
+        tag_config = default_tag_config()
+
+    # Vocabulary section — dynamic from TagConfig
+    vocab_lines = ["## Valid Vocabulary\n"]
+    for fname, fdef in tag_config.fields.items():
+        if fdef.type == "single":
+            vocab_lines.append(f"- {fname}: {sorted(fdef.values)}")
+        else:
+            pick_hint = f" (pick {fdef.pick[0]}-{fdef.pick[1]})" if fdef.pick else ""
+            vocab_lines.append(f"- {fname}{pick_hint}: {sorted(fdef.values)}")
+    vocab = "\n".join(vocab_lines) + "\n"
+
+    # JSON schema section — dynamic from TagConfig
+    schema_fields = []
+    for fname, fdef in tag_config.fields.items():
+        if fdef.type == "single":
+            schema_fields.append(f'  "{fname}": "<{"|".join(fdef.values)}>"')
+        else:
+            schema_fields.append(f'  "{fname}": ["<value>", ...]')
+
     schema = (
         "## Output JSON Schema\n\n"
         "Return a JSON array. Each element:\n"
         "```\n"
         "{\n"
         '  "id": "<spotify-track-id>",\n'
-        '  "energy": "<low|mid|high>",\n'
-        '  "function": ["<value>", ...],\n'
-        '  "crowd": ["<value>", ...],\n'
-        '  "mood_tags": ["<value>", ...],\n'
+        + ",\n".join(f"  {f.split(':')[0]}:{f.split(':',1)[1]}" if False else f for f in schema_fields)
+        + ",\n"
         '  "genre_suggestion": "<optional: only if you disagree with the bucket>"\n'
         "}\n"
         "```\n"
@@ -85,18 +96,11 @@ def build_tag_prompt(tracks: list[Track]) -> str:
         f"{track_lines}\n"
     )
 
-    # Classification guidance
-    guidance = (
-        "## Classification Guidance\n\n"
-        "- **energy**: Based on audio energy score, BPM, and genre context. "
-        "A hip-hop track at 95 BPM can be 'mid'; an electronic track at 95 BPM is 'low'.\n"
-        "- **function**: What role does this track play in a DJ set? "
-        "Consider energy, singability, and typical crowd response.\n"
-        "- **crowd**: Which audience does this track resonate with most? "
-        "Consider era, genre, and lyrical content.\n"
-        "- **mood_tags**: The emotional qualities of the track. "
-        "Use arousal/valence scores and audio mood as guidance.\n"
-    )
+    # Classification guidance — from TagConfig
+    if tag_config.guidance:
+        guidance = f"## Classification Guidance\n\n{tag_config.guidance}\n"
+    else:
+        guidance = ""
 
     # Final assembly
     prompt = (

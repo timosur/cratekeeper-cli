@@ -11,6 +11,7 @@ Tag mapping:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import mutagen
 from mutagen.flac import FLAC
@@ -19,7 +20,13 @@ from mutagen.mp4 import MP4
 
 from cratekeeper.models import Track
 
-# --- Single source of truth for structured-tag vocabulary and comment format ---
+if TYPE_CHECKING:
+    from cratekeeper.config import TagConfig
+
+# --- Legacy vocabulary constants (deprecated) ---
+# These exist for backward compatibility with code that imports them directly.
+# The authoritative source is now TagConfig from cratekeeper.config.
+# New code should use profile.tag_config.fields instead.
 
 VALID_ENERGY = {"low", "mid", "high"}
 VALID_FUNCTION = {"floorfiller", "singalong", "bridge", "reset", "closer", "opener"}
@@ -38,30 +45,40 @@ STRUCTURED_COMMENT = "structured_comment"
 ID3_ONLY = "id3_only"
 
 
-def _build_comment(track: Track) -> str:
-    """Build the structured tags comment string."""
+def _build_comment(track: Track, tag_config: "TagConfig | None" = None) -> str:
+    """Build the structured tags comment string using profile field definitions."""
+    from cratekeeper.config import TagConfig, default_tag_config
+
+    if tag_config is None:
+        tag_config = default_tag_config()
+
     parts = []
 
+    # Era is always first (implicit, not a tag field)
     era = track.era or track.compute_era()
     if era:
         parts.append(f"era:{era}")
 
-    if track.energy:
-        parts.append(f"energy:{track.energy}")
+    # Iterate tag fields in definition order
+    for fname, fdef in tag_config.fields.items():
+        # Try generic tags dict first, fall back to legacy fields
+        value = track.tags.get(fname)
+        if value is None:
+            # Fall back to legacy attribute
+            value = getattr(track, fname, None)
 
-    if track.function:
-        parts.append(f"function:{','.join(track.function)}")
+        if not value:
+            continue
 
-    if track.crowd:
-        parts.append(f"crowd:{','.join(track.crowd)}")
-
-    if track.mood_tags:
-        parts.append(f"mood:{','.join(track.mood_tags)}")
+        if isinstance(value, list):
+            parts.append(f"{fname}:{','.join(value)}")
+        else:
+            parts.append(f"{fname}:{value}")
 
     return "; ".join(parts)
 
 
-def tag_track(track: Track, tag_format: str = STRUCTURED_COMMENT) -> bool:
+def tag_track(track: Track, tag_format: str = STRUCTURED_COMMENT, tag_config: "TagConfig | None" = None) -> bool:
     """Write classification metadata into a track's audio file tags.
 
     ``tag_format`` controls whether the structured comment is written:
@@ -82,18 +99,18 @@ def tag_track(track: Track, tag_format: str = STRUCTURED_COMMENT) -> bool:
 
     try:
         if suffix == ".mp3":
-            return _tag_mp3(path, track, write_comment)
+            return _tag_mp3(path, track, write_comment, tag_config)
         elif suffix == ".flac":
-            return _tag_flac(path, track, write_comment)
+            return _tag_flac(path, track, write_comment, tag_config)
         elif suffix in (".m4a", ".mp4"):
-            return _tag_m4a(path, track, write_comment)
+            return _tag_m4a(path, track, write_comment, tag_config)
         else:
             return _tag_generic(path, track)
     except Exception:
         return False
 
 
-def _tag_mp3(path: Path, track: Track, write_comment: bool = True) -> bool:
+def _tag_mp3(path: Path, track: Track, write_comment: bool = True, tag_config: "TagConfig | None" = None) -> bool:
     """Write tags to an MP3 file using ID3."""
     try:
         tags = ID3(str(path))
@@ -117,7 +134,7 @@ def _tag_mp3(path: Path, track: Track, write_comment: bool = True) -> bool:
 
     # Structured tags comment
     if write_comment:
-        comment = _build_comment(track)
+        comment = _build_comment(track, tag_config)
         if comment:
             tags.delall("COMM")
             tags.add(COMM(encoding=3, lang="eng", desc="", text=[comment]))
@@ -126,7 +143,7 @@ def _tag_mp3(path: Path, track: Track, write_comment: bool = True) -> bool:
     return True
 
 
-def _tag_flac(path: Path, track: Track, write_comment: bool = True) -> bool:
+def _tag_flac(path: Path, track: Track, write_comment: bool = True, tag_config: "TagConfig | None" = None) -> bool:
     """Write tags to a FLAC file."""
     audio = FLAC(str(path))
 
@@ -140,7 +157,7 @@ def _tag_flac(path: Path, track: Track, write_comment: bool = True) -> bool:
         audio["initialkey"] = track.key
 
     if write_comment:
-        comment = _build_comment(track)
+        comment = _build_comment(track, tag_config)
         if comment:
             audio["comment"] = comment
 
@@ -148,7 +165,7 @@ def _tag_flac(path: Path, track: Track, write_comment: bool = True) -> bool:
     return True
 
 
-def _tag_m4a(path: Path, track: Track, write_comment: bool = True) -> bool:
+def _tag_m4a(path: Path, track: Track, write_comment: bool = True, tag_config: "TagConfig | None" = None) -> bool:
     """Write tags to an M4A/MP4 file using iTunes-style atoms."""
     audio = MP4(str(path))
 
@@ -159,7 +176,7 @@ def _tag_m4a(path: Path, track: Track, write_comment: bool = True) -> bool:
         audio["tmpo"] = [int(round(track.bpm))]
 
     if write_comment:
-        comment = _build_comment(track)
+        comment = _build_comment(track, tag_config)
         if comment:
             audio["\xa9cmt"] = [comment]
 
@@ -282,46 +299,117 @@ def tag_untagged_files(
 def apply_tags_from_data(
     tracks: list[Track],
     tags_data: list[dict],
-) -> tuple[int, int]:
+    tag_config: "TagConfig | None" = None,
+) -> tuple[int, int, list[str]]:
     """Apply pre-classified tags from a list of tag dicts into track objects in-place.
 
-    Each entry in ``tags_data`` is ``{id, energy, function, crowd, mood_tags, genre_suggestion}``.
-    Returns (applied_count, warning_count).
+    Each entry in ``tags_data`` maps field names to values. Fields and valid values
+    are validated against *tag_config*. When *tag_config* is None, falls back to
+    the legacy hardcoded vocabulary (permissive filter, no strict rejection).
+
+    Returns (applied_count, warning_count, errors).
     """
+    from cratekeeper.config import TagConfig, default_tag_config
+
+    if tag_config is None:
+        tag_config = default_tag_config()
+
     track_map = {t.id: t for t in tracks}
     applied = 0
     warnings = 0
+    errors: list[str] = []
 
     for entry in tags_data:
         tid = entry.get("id")
         track = track_map.get(tid)
         if not track:
             warnings += 1
+            errors.append(f"Track {tid!r} not found in plan")
             continue
 
-        energy = entry.get("energy")
-        if energy and energy in VALID_ENERGY:
-            track.energy = energy
+        entry_errors: list[str] = []
 
-        funcs = entry.get("function", [])
-        track.function = [f for f in funcs if f in VALID_FUNCTION]
+        for fname, fdef in tag_config.fields.items():
+            raw_value = entry.get(fname)
+            if raw_value is None:
+                continue
 
-        crowd = entry.get("crowd", [])
-        track.crowd = [c for c in crowd if c in VALID_CROWD]
+            if fdef.type == "single":
+                # Single-type: must be a string, not a list
+                if isinstance(raw_value, list):
+                    entry_errors.append(
+                        f"{fname}: expected single value, got list {raw_value}"
+                    )
+                    continue
+                if raw_value not in fdef.values:
+                    entry_errors.append(
+                        f"{fname}: '{raw_value}' not valid (valid: {fdef.values})"
+                    )
+                    continue
+            elif fdef.type == "list":
+                # List-type: must be a list
+                if not isinstance(raw_value, list):
+                    raw_value = [raw_value]
+                # Check all values are valid
+                invalid = [v for v in raw_value if v not in fdef.values]
+                if invalid:
+                    entry_errors.append(
+                        f"{fname}: invalid values {invalid} (valid: {fdef.values})"
+                    )
+                    continue
+                # Check pick range
+                if fdef.pick:
+                    min_pick, max_pick = fdef.pick
+                    if len(raw_value) < min_pick or len(raw_value) > max_pick:
+                        entry_errors.append(
+                            f"{fname}: {len(raw_value)} values given, "
+                            f"expected {min_pick}-{max_pick}"
+                        )
+                        continue
 
-        mood_tags = entry.get("mood_tags", [])
-        track.mood_tags = [m for m in mood_tags if m in VALID_MOOD]
+        if entry_errors:
+            errors.extend(f"Track {tid}: {e}" for e in entry_errors)
+            warnings += 1
+            continue
 
+        # Validation passed — apply tags
+        for fname, fdef in tag_config.fields.items():
+            raw_value = entry.get(fname)
+            if raw_value is None:
+                continue
+
+            if fdef.type == "single":
+                track.tags[fname] = raw_value
+            elif fdef.type == "list":
+                val = raw_value if isinstance(raw_value, list) else [raw_value]
+                track.tags[fname] = val
+
+        # Populate legacy fields for backward compatibility
+        if "energy" in track.tags:
+            track.energy = track.tags["energy"]  # type: ignore[assignment]
+        if "function" in track.tags:
+            track.function = track.tags["function"]  # type: ignore[assignment]
+        if "crowd" in track.tags:
+            track.crowd = track.tags["crowd"]  # type: ignore[assignment]
+        if "mood_tags" in track.tags:
+            track.mood_tags = track.tags["mood_tags"]  # type: ignore[assignment]
+
+        # Handle genre_suggestion (not a tag field, but a special override)
         genre = entry.get("genre_suggestion")
         if genre and genre != track.bucket:
             track.bucket = genre
 
         applied += 1
 
-    return applied, warnings
+    return applied, warnings, errors
 
 
-def tag_tracks(tracks: list[Track], progress_callback=None, tag_format: str = STRUCTURED_COMMENT) -> tuple[int, int]:
+def tag_tracks(
+    tracks: list[Track],
+    progress_callback=None,
+    tag_format: str = STRUCTURED_COMMENT,
+    tag_config: "TagConfig | None" = None,
+) -> tuple[int, int]:
     """Write tags for all tracks with a local_path.
 
     Returns (success_count, fail_count).
@@ -331,7 +419,7 @@ def tag_tracks(tracks: list[Track], progress_callback=None, tag_format: str = ST
     failed = 0
 
     for i, track in enumerate(candidates):
-        ok = tag_track(track, tag_format)
+        ok = tag_track(track, tag_format, tag_config=tag_config)
         if ok:
             success += 1
         else:

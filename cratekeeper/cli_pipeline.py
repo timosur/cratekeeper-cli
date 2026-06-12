@@ -86,6 +86,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command(name="apply-tags")
     def apply_tags(
+        ctx: typer.Context,
         input_file: Path = typer.Argument(help="Path to classified JSON"),
         tags_file: Path = typer.Argument(help="Path to tags JSON (array of {id, energy, function, crowd, mood_tags})"),
     ) -> None:
@@ -93,6 +94,7 @@ def register(app: typer.Typer) -> None:
         import json as _json
         from cratekeeper.pipeline.tag_writer import apply_tags_from_data
 
+        profile = ctx.obj
         plan = Plan.load(input_file)
         tags_data = _json.loads(tags_file.read_text())
 
@@ -100,14 +102,16 @@ def register(app: typer.Typer) -> None:
             console.print("[red]Tags file must contain a JSON array[/red]")
             raise typer.Exit(1)
 
-        applied, warnings = apply_tags_from_data(plan.tracks, tags_data)
+        applied, warnings, errors = apply_tags_from_data(plan.tracks, tags_data, tag_config=profile.tag_config)
+
+        if errors:
+            for err in errors:
+                console.print(f"  [red]✗[/red] {err}")
 
         for track in plan.tracks:
-            if track.energy or track.function or track.crowd or track.mood_tags:
-                console.print(
-                    f"  {track.display_name()} → energy={track.energy} "
-                    f"func={track.function} crowd={track.crowd} mood={track.mood_tags}"
-                )
+            if track.tags:
+                tag_summary = " ".join(f"{k}={v}" for k, v in track.tags.items())
+                console.print(f"  {track.display_name()} → {tag_summary}")
 
         plan.save(input_file)
         console.print(f"\n[green]Applied tags to {applied} tracks[/green]", end="")
@@ -138,7 +142,7 @@ def register(app: typer.Typer) -> None:
             if i % 20 == 0 or i == total or not ok:
                 console.print(f"  [{i}/{total}] {track.display_name()} → {status}")
 
-        success, failed = tag_tracks(plan.tracks, progress_callback=_progress, tag_format=profile.tag_format)
+        success, failed = tag_tracks(plan.tracks, progress_callback=_progress, tag_format=profile.tag_format, tag_config=profile.tag_config)
 
         console.print(f"\n[green]Tagged {success} tracks[/green]", end="")
         if failed:
@@ -151,6 +155,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command(name="tag-prompt")
     def tag_prompt(
+        ctx: typer.Context,
         input_file: Path = typer.Argument(help="Path to classified JSON (plan with analysis data)"),
         output: Path | None = typer.Option(None, "--output", "-o", help="Write prompt to file instead of stdout"),
     ) -> None:
@@ -163,6 +168,7 @@ def register(app: typer.Typer) -> None:
         from rich.console import Console as _Console
         from cratekeeper.pipeline.tag_prompt import build_tag_prompt
 
+        profile = ctx.obj
         stderr_console = _Console(stderr=True)
         plan = Plan.load(input_file)
 
@@ -174,7 +180,7 @@ def register(app: typer.Typer) -> None:
                 "Prompt will use available fields only.[/yellow]",
             )
 
-        prompt_text = build_tag_prompt(plan.tracks)
+        prompt_text = build_tag_prompt(plan.tracks, tag_config=profile.tag_config)
 
         if output:
             output.write_text(prompt_text)

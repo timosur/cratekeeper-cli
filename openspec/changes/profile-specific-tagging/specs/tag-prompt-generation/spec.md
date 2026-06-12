@@ -1,9 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Generate LLM tag classification prompt from plan
-
-Feature: Tag prompt generation
-Rule: The CLI generates a self-contained prompt suitable for any LLM harness that produces JSON compatible with `crate apply-tags`, using the active profile's tag vocabulary and classification guidance
+The system SHALL build the LLM prompt dynamically from the active profile's TagConfig, including profile-specific vocabulary constraints, JSON schema, and classification guidance. The prompt SHALL be suitable for any LLM harness and produce JSON compatible with `crate apply-tags`.
 
 #### Scenario: Generate prompt to stdout
 - **GIVEN** a plan file with tracks that have analysis data (bpm, key, audio_energy, audio_mood, arousal, valence, bucket, era)
@@ -51,9 +49,7 @@ Rule: The CLI generates a self-contained prompt suitable for any LLM harness tha
 - **THEN** the prompt uses the default vocabulary: energy (low, mid, high), function (floorfiller, singalong, bridge, reset, closer, opener), crowd (mixed-age, older, younger, family), and mood_tags (feelgood, emotional, euphoric, nostalgic, romantic, melancholic, dark, aggressive, uplifting, dreamy, funky, groovy)
 
 ### Requirement: Wizard generates tag prompt before requesting tags file
-
-Feature: Tag prompt generation in wizard
-Rule: The wizard automatically generates and saves the LLM prompt when entering the apply-tags step, using the active profile's tag vocabulary
+The system SHALL generate the tag prompt using the active profile's TagConfig when the wizard reaches the apply-tags step and automatically save it to a file in the plan's data directory.
 
 #### Scenario: Wizard generates prompt file automatically
 - **GIVEN** the wizard reaches the "Apply LLM-classified tags" step
