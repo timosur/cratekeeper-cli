@@ -1,0 +1,68 @@
+# Playlist Ingestion
+
+## Purpose
+
+Fetches tracks from a Spotify playlist and enriches them with genre and release-year metadata from MusicBrainz, producing the initial plan JSON that drives the rest of the pipeline.
+
+## ADDED Requirements
+
+### Requirement: Capture added_at from Spotify playlist
+When fetching tracks from a Spotify playlist, the system SHALL capture the `added_at` timestamp from each playlist item and store it on the corresponding `Track` in the plan JSON.
+
+Feature: Track acquisition timestamp from Spotify playlist
+Rule: The system SHALL capture `added_at` from Spotify playlist items.
+
+#### Scenario: added_at present on fetched tracks
+- **GIVEN** a Spotify playlist contains tracks with `added_at` timestamps
+- **WHEN** the DJ runs `crate fetch` on that playlist
+- **THEN** each track in the generated plan JSON has an `added_at` field containing the ISO-8601 timestamp from the Spotify API
+
+#### Scenario: added_at absent for unavailable tracks
+- **GIVEN** a playlist item has no track data (e.g. the track is unavailable or removed from Spotify)
+- **WHEN** the system skips that item
+- **THEN** no track is created and the `added_at` is not captured
+
+## MODIFIED Requirements
+
+### Requirement: Fetch Spotify playlist to JSON plan
+The system SHALL fetch all tracks from a Spotify playlist URL and persist them as a structured JSON plan under the active profile's `data_dir` (e.g. `<profile-data_dir>/<plan>.json`) instead of the shared `data/` directory. The plan type (event or library-import) is determined by an interactive prompt or defaults to event for non-interactive sessions. Each track in the plan SHALL include `added_at` from the Spotify playlist item when available.
+
+#### Scenario: Fetch a valid playlist as event
+- **GIVEN** stdin is an interactive terminal
+- **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
+- **AND** selects "event" at the plan-type prompt
+- **THEN** the system creates a JSON file under the active profile's `data_dir` with `plan_type` of `event` containing every track from the playlist with name, artists, album, ISRC, Spotify URI, duration, and `added_at`
+
+#### Scenario: Fetch a valid playlist as library import
+- **GIVEN** stdin is an interactive terminal
+- **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
+- **AND** selects "library import" at the plan-type prompt
+- **THEN** the system creates a JSON file under the active profile's `data_dir` with `plan_type` of `library-import` containing every track from the playlist with `added_at`
+
+#### Scenario: Reuse cached Spotify token
+- **WHEN** a valid Spotify token exists in `spotify-config.json`
+- **THEN** the system reuses the token without re-authenticating
+
+#### Scenario: Invalid or empty playlist
+- **WHEN** the playlist URL is invalid or the playlist contains zero tracks
+- **THEN** the system exits with a clear error message and non-zero exit code
+
+#### Scenario: Non-interactive fetch defaults to event
+- **GIVEN** stdin is not an interactive terminal
+- **WHEN** the DJ runs `crate fetch` with a valid Spotify playlist URL
+- **THEN** the system creates an event plan under the active profile's `data_dir` without prompting
+
+### Requirement: Enrich genres and release years via MusicBrainz
+The system SHALL enrich each track in a plan with genre tags and release years by looking up ISRCs on MusicBrainz. This works identically for both event and library-import plans.
+
+#### Scenario: Successful ISRC lookup
+- **WHEN** the DJ runs `crate enrich` on a fetched plan and MusicBrainz returns genre/year data for a track's ISRC
+- **THEN** the system writes the genre tags and release year onto the track in the plan JSON
+
+#### Scenario: Rate limiting
+- **WHEN** the system makes MusicBrainz API requests
+- **THEN** the system respects a minimum 1.1-second interval between requests to comply with rate limits
+
+#### Scenario: ISRC not found
+- **WHEN** a track's ISRC has no MusicBrainz match
+- **THEN** the track is left without enriched genre/year data and the pipeline continues without error

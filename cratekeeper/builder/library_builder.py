@@ -27,6 +27,7 @@ class LibraryPreflight:
     undecided: int = 0
     rejected: int = 0
     untagged: int = 0          # approved but missing required tags
+    fallback: int = 0          # will use genre_artist fallback due to missing added_at
 
     @property
     def qualifies(self) -> bool:
@@ -36,6 +37,7 @@ class LibraryPreflight:
 def library_preflight(
     tracks: list[Track],
     required_fields: list[str] | None = None,
+    library_structure: str = "genre_artist",
 ) -> LibraryPreflight:
     """Return a pre-flight summary without copying any files."""
     candidates = [t for t in tracks if t.local_path and t.bucket]
@@ -43,6 +45,12 @@ def library_preflight(
         t for t in candidates
         if t.library_approval == "approved" and is_fully_tagged(t, required_fields)
     ]
+    fallback = 0
+    if library_structure == "genre_year_month":
+        fallback = sum(
+            1 for t in approved_tagged
+            if not t.added_at
+        )
     return LibraryPreflight(
         candidates=len(candidates),
         approved_tagged=len(approved_tagged),
@@ -52,6 +60,7 @@ def library_preflight(
             1 for t in candidates
             if t.library_approval == "approved" and not is_fully_tagged(t, required_fields)
         ),
+        fallback=fallback,
     )
 
 
@@ -81,12 +90,36 @@ def _track_filename(track: Track) -> str:
     return _safe_filename(f"{artist} - {title}")
 
 
+def _build_dest_path(
+    track: Track,
+    target_dir: Path,
+    library_structure: str = "genre_artist",
+) -> Path:
+    """Compute the destination path for a track based on library_structure."""
+    genre = _safe_filename(track.bucket)
+    source = Path(track.local_path)
+    filename = _track_filename(track) + source.suffix
+
+    if library_structure == "genre_year_month" and track.added_at:
+        # Parse ISO-8601 timestamp: 2024-03-15T10:00:00Z
+        date_part = track.added_at[:10]
+        year = date_part[:4]
+        month = date_part[5:7]
+        dest_dir = target_dir / genre / year / month
+    else:
+        dest_dir = target_dir / genre
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return dest_dir / filename
+
+
 def build_library(
     tracks: list[Track],
     target_dir: Path,
     progress_callback=None,
     required_fields: list[str] | None = None,
     sort=None,
+    library_structure: str = "genre_artist",
 ) -> BuildLibraryResult:
     """Copy approved, fully-tagged local files into Genre/ structure in the target directory.
 
@@ -145,11 +178,7 @@ def build_library(
             result.missing.append(track)
             continue
 
-        genre = _safe_filename(track.bucket)
-        filename = _track_filename(track) + source.suffix
-        dest_dir = target_dir / genre
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / filename
+        dest_path = _build_dest_path(track, target_dir, library_structure)
 
         if dest_path.exists():
             result.already_existed += 1

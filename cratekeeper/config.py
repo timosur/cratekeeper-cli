@@ -29,6 +29,7 @@ DJ_SOFTWARE = {"djay_pro", "rekordbox"}
 SORT_DIRECTIONS = {"asc", "desc"}
 DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
 DEFAULT_LIBRARY_TARGET = Path.home() / "Music" / "Library"
+LIBRARY_STRUCTURES = {"genre_artist", "genre_year_month"}
 
 
 @dataclass
@@ -105,6 +106,7 @@ buckets = "electronic"
 dj_software = "rekordbox"
 tag_format = "structured_comment"
 library_target = "~/Music/Library-Electronic"
+library_structure = "genre_year_month"
 required_fields = ["energy", "function", "mood_tags", "mix_traits"]
 
 [profiles.electronic.sort]
@@ -162,6 +164,7 @@ class Profile:
     tag_format: str = "structured_comment"
     sort: SortRule | None = None
     tag_config: TagConfig = field(default_factory=default_tag_config)
+    library_structure: str = "genre_artist"
 
     def plan_path(self, name: str) -> Path:
         """Return the default JSON plan path for a playlist or source name.
@@ -193,6 +196,7 @@ class Profile:
             "dj_software": self.dj_software,
             "tag_format": self.tag_format,
             "sort": None if self.sort is None else {"keys": list(self.sort.keys), "direction": self.sort.direction},
+            "library_structure": self.library_structure,
             "tag_vocabulary": tag_vocab,
             "tag_guidance": self.tag_config.guidance,
         }
@@ -220,6 +224,7 @@ def implicit_commercial_profile() -> Profile:
         tag_format="structured_comment",
         sort=None,
         tag_config=default_tag_config(),
+        library_structure="genre_artist",
     )
 
 
@@ -352,6 +357,12 @@ def _build_profile(name: str, raw: dict) -> Profile:
         else _XDG_CONFIG / "cratekeeper" / name / "data"
     )
 
+    library_structure = raw.get("library_structure", "genre_artist")
+    if library_structure not in LIBRARY_STRUCTURES:
+        raise ConfigError(
+            f"Profile {name!r}: library_structure {library_structure!r} must be one of {sorted(LIBRARY_STRUCTURES)}"
+        )
+
     required_fields = list(raw.get("required_fields", DEFAULT_REQUIRED_FIELDS))
     sort = _parse_sort(raw.get("sort"), name)
     tag_config = _parse_tag_config(raw.get("tags"), name)
@@ -367,6 +378,7 @@ def _build_profile(name: str, raw: dict) -> Profile:
         tag_format=tag_format,
         sort=sort,
         tag_config=tag_config,
+        library_structure=library_structure,
     )
 
 

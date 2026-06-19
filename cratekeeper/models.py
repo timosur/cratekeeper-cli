@@ -23,6 +23,7 @@ class Track:
     bucket: str | None = None
     confidence: str = "high"  # high, medium, low
     local_path: str | None = None
+    added_at: str | None = None  # ISO 8601 timestamp when track entered source playlist
     mood: str | None = None  # legacy: old mood system (Chill/Groovy/Peak etc.)
     era: str | None = None
 

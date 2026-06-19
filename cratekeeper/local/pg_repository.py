@@ -50,12 +50,19 @@ class PostgresTrackRepository:
                     duration_ms INTEGER,
                     format TEXT,
                     title_norm TEXT,
-                    artist_norm TEXT
+                    artist_norm TEXT,
+                    added_at TEXT
                 )
             """)
             cur.execute("""
                 DO $$ BEGIN
                     ALTER TABLE tracks ADD COLUMN rel_path TEXT;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE tracks ADD COLUMN added_at TEXT;
                 EXCEPTION WHEN duplicate_column THEN NULL;
                 END $$
             """)
@@ -88,27 +95,29 @@ class PostgresTrackRepository:
                     )
                 psycopg2.extras.execute_values(
                     cur,
-                    """INSERT INTO tracks (path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm)
+                    """INSERT INTO tracks (path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at)
                        VALUES %s
                        ON CONFLICT (path) DO UPDATE SET
                            rel_path = EXCLUDED.rel_path,
                            title = EXCLUDED.title, artist = EXCLUDED.artist, album = EXCLUDED.album,
                            isrc = EXCLUDED.isrc, year = EXCLUDED.year, duration_ms = EXCLUDED.duration_ms,
-                           format = EXCLUDED.format, title_norm = EXCLUDED.title_norm, artist_norm = EXCLUDED.artist_norm""",
+                           format = EXCLUDED.format, title_norm = EXCLUDED.title_norm, artist_norm = EXCLUDED.artist_norm,
+                           added_at = EXCLUDED.added_at""",
                     [(d["path"], d["rel_path"], d["title"], d["artist"], d["album"], d["isrc"], d["year"],
-                      d["duration_ms"], d["format"], d["title_norm"], d["artist_norm"]) for d in with_rel],
+                      d["duration_ms"], d["format"], d["title_norm"], d["artist_norm"], d.get("added_at")) for d in with_rel],
                 )
             if without_rel:
                 psycopg2.extras.execute_values(
                     cur,
-                    """INSERT INTO tracks (path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm)
+                    """INSERT INTO tracks (path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at)
                        VALUES %s
                        ON CONFLICT (path) DO UPDATE SET
                            title = EXCLUDED.title, artist = EXCLUDED.artist, album = EXCLUDED.album,
                            isrc = EXCLUDED.isrc, year = EXCLUDED.year, duration_ms = EXCLUDED.duration_ms,
-                           format = EXCLUDED.format, title_norm = EXCLUDED.title_norm, artist_norm = EXCLUDED.artist_norm""",
+                           format = EXCLUDED.format, title_norm = EXCLUDED.title_norm, artist_norm = EXCLUDED.artist_norm,
+                           added_at = EXCLUDED.added_at""",
                     [(d["path"], d["title"], d["artist"], d["album"], d["isrc"], d["year"],
-                      d["duration_ms"], d["format"], d["title_norm"], d["artist_norm"]) for d in without_rel],
+                      d["duration_ms"], d["format"], d["title_norm"], d["artist_norm"], d.get("added_at")) for d in without_rel],
                 )
         self._conn.commit()
 
@@ -128,12 +137,13 @@ class PostgresTrackRepository:
             path=row[0], rel_path=row[1], title=row[2], artist=row[3],
             album=row[4], isrc=row[5], year=row[6], duration_ms=row[7] or 0,
             format=row[8], title_norm=row[9], artist_norm=row[10],
+            added_at=row[11] if len(row) > 11 else None,
         )
 
     def find_by_isrc(self, isrc: str) -> LocalTrack | None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks WHERE isrc = %s LIMIT 1",
                 (isrc.upper(),),
             )
@@ -143,7 +153,7 @@ class PostgresTrackRepository:
     def find_by_path(self, path: str) -> LocalTrack | None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks WHERE path = %s",
                 (path,),
             )
@@ -153,7 +163,7 @@ class PostgresTrackRepository:
     def find_by_rel_path(self, rel_path: str) -> LocalTrack | None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks WHERE rel_path = %s",
                 (rel_path,),
             )
@@ -163,7 +173,7 @@ class PostgresTrackRepository:
     def find_by_exact(self, artist_norm: str, title_norm: str) -> LocalTrack | None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks WHERE artist_norm = %s AND title_norm = %s LIMIT 1",
                 (artist_norm, title_norm),
             )
@@ -173,7 +183,7 @@ class PostgresTrackRepository:
     def find_candidates(self, artist_prefix: str) -> list[LocalTrack]:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks WHERE artist_norm LIKE %s AND title_norm IS NOT NULL",
                 (artist_prefix + "%",),
             )
@@ -188,7 +198,7 @@ class PostgresTrackRepository:
     def all(self) -> list[LocalTrack]:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm "
+                "SELECT path, rel_path, title, artist, album, isrc, year, duration_ms, format, title_norm, artist_norm, added_at "
                 "FROM tracks"
             )
             rows = cur.fetchall()

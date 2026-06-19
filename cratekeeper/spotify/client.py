@@ -102,7 +102,7 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> tuple[str, l
             playlist_id,
             offset=offset,
             limit=limit,
-            fields="items(track(id,name,duration_ms,artists(id,name),album(name,release_date),external_ids)),total",
+            fields="items(added_at,track(id,name,duration_ms,artists(id,name),album(name,release_date),external_ids)),total",
         )
 
         for item in results.get("items", []):
@@ -132,6 +132,7 @@ def fetch_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> tuple[str, l
                     duration_ms=track_data.get("duration_ms", 0),
                     isrc=isrc,
                     release_year=release_year,
+                    added_at=item.get("added_at"),
                 )
             )
 

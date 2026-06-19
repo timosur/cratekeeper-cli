@@ -56,7 +56,7 @@ def import_tracks(source_path: Path, repo: TrackRepository | None = None, db_url
 
     all_tracks = repo.all()
     rows = [
-        (t.path, t.title, t.artist, t.album, t.isrc, t.year, t.duration_ms)
+        (t.path, t.title, t.artist, t.album, t.isrc, t.year, t.duration_ms, t.added_at)
         for t in all_tracks
         if t.path == prefix or t.path.startswith(prefix + "/")
     ]
@@ -70,7 +70,7 @@ def import_tracks(source_path: Path, repo: TrackRepository | None = None, db_url
         )
 
     tracks: list[Track] = []
-    for path, title, artist, album, isrc, year, duration_ms in rows:
+    for path, title, artist, album, isrc, year, duration_ms, added_at in rows:
         file_path = Path(path)
         name = title or file_path.stem
         artists = [artist] if artist else ["Unknown"]
@@ -85,6 +85,7 @@ def import_tracks(source_path: Path, repo: TrackRepository | None = None, db_url
             release_year=year,
             artist_genres=_read_genre(file_path),
             local_path=path,
+            added_at=added_at,
         )
         tracks.append(track)
 

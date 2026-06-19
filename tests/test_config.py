@@ -254,3 +254,43 @@ def test_profile_describe_includes_tag_vocab(tmp_path: Path):
     assert "tag_vocabulary" in desc
     assert "mix_traits" in desc["tag_vocabulary"]
     assert "tag_guidance" in desc
+
+
+# --- library_structure ---
+
+def test_library_structure_defaults_to_genre_artist(tmp_path: Path):
+    path = _write(tmp_path, '[profiles.x]\nbuckets = "commercial"\n')
+    prof = resolve_profile("x", config_path=path)
+    assert prof.library_structure == "genre_artist"
+
+
+def test_library_structure_parsed_from_config(tmp_path: Path):
+    path = _write(
+        tmp_path,
+        '[profiles.x]\nbuckets = "commercial"\nlibrary_structure = "genre_year_month"\n',
+    )
+    prof = resolve_profile("x", config_path=path)
+    assert prof.library_structure == "genre_year_month"
+
+
+def test_bad_library_structure_raises(tmp_path: Path):
+    path = _write(
+        tmp_path,
+        '[profiles.x]\nbuckets = "commercial"\nlibrary_structure = "invalid"\n',
+    )
+    with pytest.raises(ConfigError, match="library_structure"):
+        load_settings(path)
+
+
+def test_default_config_electronic_has_genre_year_month(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    prof = resolve_profile("electronic", config_path=path)
+    assert prof.library_structure == "genre_year_month"
+
+
+def test_default_config_commercial_has_genre_artist(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    prof = resolve_profile("commercial", config_path=path)
+    assert prof.library_structure == "genre_artist"

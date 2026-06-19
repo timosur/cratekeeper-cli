@@ -59,3 +59,27 @@ def test_build_sorts_within_bucket(tmp_path: Path):
     t3 = _approved(tmp_path, "c.mp3", "House", bpm=124.0)
     build_library([t1, t2, t3], target, progress_callback=cb, sort=SortRule(keys=["bpm"], direction="desc"))
     assert order == ["b.mp3", "c.mp3", "a.mp3"]
+
+
+def test_build_genre_year_month_with_added_at(tmp_path: Path):
+    target = tmp_path / "Library"
+    t = _approved(tmp_path, "song.mp3", "House", title="Song", added_at="2024-03-15T10:00:00Z")
+    result = build_library([t], target, library_structure="genre_year_month")
+    assert result.copied == 1
+    assert (target / "House" / "2024" / "03" / "Artist - Song.mp3").exists()
+
+
+def test_build_genre_year_month_fallback_without_added_at(tmp_path: Path):
+    target = tmp_path / "Library"
+    t = _approved(tmp_path, "song.mp3", "House", title="Song")
+    result = build_library([t], target, library_structure="genre_year_month")
+    assert result.copied == 1
+    assert (target / "House" / "Artist - Song.mp3").exists()
+
+
+def test_build_genre_artist_ignores_added_at(tmp_path: Path):
+    target = tmp_path / "Library"
+    t = _approved(tmp_path, "song.mp3", "House", title="Song", added_at="2024-03-15T10:00:00Z")
+    result = build_library([t], target, library_structure="genre_artist")
+    assert result.copied == 1
+    assert (target / "House" / "Artist - Song.mp3").exists()

@@ -24,6 +24,7 @@ class LocalTrack:
     format: str | None = None
     title_norm: str | None = None
     artist_norm: str | None = None
+    added_at: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "LocalTrack":
@@ -39,6 +40,7 @@ class LocalTrack:
             format=d.get("format"),
             title_norm=d.get("title_norm"),
             artist_norm=d.get("artist_norm"),
+            added_at=d.get("added_at"),
         )
 
     def to_dict(self) -> dict:
@@ -54,6 +56,7 @@ class LocalTrack:
             "format": self.format,
             "title_norm": self.title_norm,
             "artist_norm": self.artist_norm,
+            "added_at": self.added_at,
         }
 
 

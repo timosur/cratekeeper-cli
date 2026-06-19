@@ -134,7 +134,7 @@ def register(app: typer.Typer) -> None:
         required_fields = profile.required_fields
 
         plan = Plan.load(input_file)
-        pre = library_preflight(plan.tracks, required_fields)
+        pre = library_preflight(plan.tracks, required_fields, library_structure=profile.library_structure)
 
         console.print(
             f"Loaded [green]{len(plan.tracks)}[/green] tracks, "
@@ -142,6 +142,8 @@ def register(app: typer.Typer) -> None:
             f"[green]{pre.approved_tagged}[/green] approved+tagged "
             f"[dim](profile: {profile.name} → {target})[/dim]"
         )
+        if pre.fallback:
+            console.print(f"  [yellow]{pre.fallback} track(s) will use fallback Genre/ layout (missing added_at)[/yellow]")
 
         if pre.candidates and not pre.qualifies:
             console.print("[red]No tracks qualify for the master library.[/red]")
@@ -163,7 +165,7 @@ def register(app: typer.Typer) -> None:
             if i % 20 == 0 or i == total:
                 console.print(f"  [{i}/{total}] {track.display_name()}")
 
-        result = build_library(plan.tracks, target, progress_callback=_progress, required_fields=required_fields, sort=profile.sort)
+        result = build_library(plan.tracks, target, progress_callback=_progress, required_fields=required_fields, sort=profile.sort, library_structure=profile.library_structure)
 
         table = Table(title="Library Build Results")
         table.add_column("Metric", style="cyan")

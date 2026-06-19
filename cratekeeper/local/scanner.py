@@ -74,6 +74,17 @@ def _normalize_for_index(text: str | None) -> str | None:
     return text
 
 
+def _file_added_at(file_path: Path) -> str | None:
+    """Return filesystem birthtime as ISO-8601, falling back to mtime."""
+    try:
+        stat = file_path.stat()
+        # st_birthtime is macOS/BSD; Linux may not have it
+        ts = getattr(stat, "st_birthtime", None) or stat.st_mtime
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
 def _extract_metadata(file_path: Path) -> dict | None:
     """Extract metadata from a single audio file using mutagen.
 
@@ -91,6 +102,8 @@ def _extract_metadata(file_path: Path) -> dict | None:
     year = None
     duration_ms = 0
 
+    added_at = _file_added_at(file_path)
+
     if audio is None:
         return {
             "path": str(file_path),
@@ -99,6 +112,7 @@ def _extract_metadata(file_path: Path) -> dict | None:
             "isrc": None, "year": None, "duration_ms": 0,
             "format": file_path.suffix.lstrip(".").lower(),
             "title_norm": None, "artist_norm": None,
+            "added_at": added_at,
         }
 
     # Duration
@@ -155,6 +169,7 @@ def _extract_metadata(file_path: Path) -> dict | None:
         "format": file_path.suffix.lstrip(".").lower(),
         "title_norm": _normalize_for_index(title),
         "artist_norm": _normalize_for_index(artist),
+        "added_at": added_at,
     }
 
 

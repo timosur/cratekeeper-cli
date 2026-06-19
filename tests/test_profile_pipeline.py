@@ -38,7 +38,7 @@ def test_classify_with_electronic_buckets():
     t = _track(artist_genres=["tech house"])
     bucket, conf = classify_track(t, preset.buckets, preset.fallback)
     assert conf == "high"
-    assert bucket == "Minimal / Tech House"
+    assert bucket == "Tech House"
 
 
 def test_classify_fallback_uses_profile_fallback():

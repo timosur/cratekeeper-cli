@@ -398,6 +398,8 @@ def _run_review_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, s
     for idx, track in enumerate(pending, 1):
         info_lines = [f"[bold]{track.display_name()}[/bold]"]
         info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan]   Year: {track.release_year or '?'}")
+        if track.added_at:
+            info_lines.append(f"Added: [cyan]{track.added_at[:10]}[/cyan]")
         if track.bpm or track.key:
             info_lines.append(f"BPM: {track.bpm or '?'}   Key: {track.key or '?'}")
         if is_admission_complete(track, required_fields):
@@ -448,6 +450,7 @@ def _run_build_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, st
     result = build_library(
         plan.tracks, target, progress_callback=_progress,
         required_fields=profile.required_fields, sort=profile.sort,
+        library_structure=profile.library_structure,
     )
     return plan, f"Copied {result.copied}, {result.already_existed} existed, {result.missing_tags} excluded"
 
