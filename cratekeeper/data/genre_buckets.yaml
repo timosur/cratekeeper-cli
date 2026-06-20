@@ -51,31 +51,108 @@ presets:
   electronic:
     fallback: Unclassified
     buckets:
+      # Drum & Bass
       - name: Drum & Bass
-        genre_tags: [drum and bass, jungle, liquid dnb, dnb]
-      - name: Hardstyle
-        genre_tags: [hardstyle, hard dance]
+        genre_tags: [drum and bass, drum & bass, dnb, liquid, liquid dnb, jump up, jungle, deep dnb, halftime]
+      
+      # Dubstep / Bass
       - name: Dubstep
-        genre_tags: [dubstep, bass music, future bass, riddim, trap]
-      - name: Melodic Techno
-        genre_tags: [melodic techno, melodictechno]
-      - name: Techno
-        genre_tags: [techno, hard techno, hardtechno, hypertechno, industrial techno, peak time techno]
-      - name: Tech House
-        genre_tags: [minimal techno, tech house, techhouse, minimal]
-      - name: Deep House
-        genre_tags: [deep house, deephouse, organic house, tropical house, afro house]
-      - name: Trance
-        genre_tags: [trance, uplifting trance, vocal trance, progressive trance]
-      - name: EDM
-        genre_tags: [edm, big room, bigroom, electro, future house]
-      - name: Disco / Nu Disco
-        genre_tags: [nu disco, disco, italo disco, funk, boogie]
+        genre_tags: [dubstep, melodic dubstep, midtempo]
+      - name: 140 / Deep Dubstep / Grime
+        genre_tags: [140, deep dubstep, grime]
+      
+      # Bass / Club
+      - name: Bass / Club
+        genre_tags: [bass, club, juke, footwork, global club, jersey club, gqom, bass house, uk funky, reggae, dancehall]
+      - name: Brazilian Funk
+        genre_tags: [brazilian funk, carioca funk, mandelao funk, bh funk, melodic funk, eletrofunk]
+      - name: Breaks / Breakbeat / UK Bass
+        genre_tags: [breaks, breakbeat, uk bass, glitch hop]
+      
+      # House variants
       - name: House
-        genre_tags: [house, electro house, electrohouse, funky house, uk garage, garage]
-      - name: Dance
-        genre_tags: [dance, hands up, hard dance]
-      - name: Future Bass
-        genre_tags: [future bass]
-      - name: Melodic House
-        genre_tags: [melodic house, trance house, progressive house, progressivehouse]
+        genre_tags: [house, acid house, soulful house, latin house]
+      - name: Deep House
+        genre_tags: [deep house, deephouse]
+      - name: Tech House
+        genre_tags: [tech house, techhouse, latin tech]
+      - name: Bass House
+        genre_tags: [bass house]
+      - name: Funky House
+        genre_tags: [funky house]
+      - name: Jackin House
+        genre_tags: [jackin house, jackin]
+      - name: Progressive House
+        genre_tags: [progressive house, progressivehouse]
+      - name: Melodic House & Techno
+        genre_tags: [melodic house, melodic techno, melodic house & techno]
+      - name: Organic House
+        genre_tags: [organic house]
+      - name: Afro House
+        genre_tags: [afro house, afro, latin, 3step, afro melodic]
+      - name: Amapiano
+        genre_tags: [amapiano]
+      
+      # Techno variants
+      - name: Techno (Peak Time / Driving)
+        genre_tags: [techno, peak time, peak time techno, driving techno, psy-techno]
+      - name: Techno (Raw / Deep / Hypnotic)
+        genre_tags: [raw techno, deep techno, hypnotic techno, ebm, dub techno, broken techno]
+      - name: Hard Techno
+        genre_tags: [hard techno, hardtechno]
+      - name: Minimal / Deep Tech
+        genre_tags: [minimal, minimal house, minimal techno, deep tech, bounce]
+      
+      # Trance
+      - name: Trance (Main Floor)
+        genre_tags: [trance, progressive trance, tech trance, hard trance, uplifting trance, vocal trance]
+      - name: Trance (Raw / Deep / Hypnotic)
+        genre_tags: [raw trance, deep trance, hypnotic trance]
+      - name: Psy-Trance
+        genre_tags: [psy-trance, psytrance, full-on, progressive psy, psychedelic, goa trance, goatrance, dark psy, forest psy, psycore, hi-tech]
+      
+      # Hard Dance / Hardcore
+      - name: Hard Dance / Hardcore / Neo Rave
+        genre_tags: [hard dance, hardcore, neo rave, hardstyle, hard house, uptempo, terror, uk hardcore, happy hardcore, frenchcore, rawstyle, gabber]
+      
+      # Indie Dance / Nu Disco
+      - name: Indie Dance
+        genre_tags: [indie dance, dark disco]
+      - name: Nu Disco / Disco
+        genre_tags: [nu disco, disco, italo disco, italo, funk, soul]
+      
+      # Electronica / Downtempo
+      - name: Electronica
+        genre_tags: [electronica]
+      - name: Ambient / Experimental
+        genre_tags: [ambient, experimental]
+      - name: Downtempo
+        genre_tags: [downtempo]
+      
+      # Electro
+      - name: Electro (Classic / Detroit / Modern)
+        genre_tags: [electro, classic electro, detroit electro, modern electro]
+      
+      # Mainstage / EDM
+      - name: Mainstage
+        genre_tags: [mainstage, big room, bigroom, electro house, electrohouse, future house, speed house, future rave, edm]
+      
+      # Trap / Future Bass
+      - name: Trap / Future Bass
+        genre_tags: [trap, future bass, futurebass]
+      
+      # UK Garage / Bassline
+      - name: UK Garage / Bassline
+        genre_tags: [uk garage, garage, bassline, 2-step, speed garage]
+      
+      # Latin Electronic
+      - name: Latin Electronic
+        genre_tags: [latin electronic, raptor house, tribal, guaracha, electronic cumbia, moombahton]
+      
+      # Dance / Pop
+      - name: Dance / Pop
+        genre_tags: [dance pop, pop, tropical house, afro pop]
+      
+      # DJ Tools
+      - name: DJ Tools
+        genre_tags: [dj tools, loops, acapellas, battle tools]
