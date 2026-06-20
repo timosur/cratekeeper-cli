@@ -209,7 +209,11 @@ DEFAULT_REQUIRED_FIELDS = ["energy", "function", "crowd", "mood_tags"]
 def is_fully_tagged(track: Track, required_fields: list[str] | None = None) -> bool:
     """Return True when the track has every profile-required structured tag field."""
     fields = required_fields if required_fields is not None else DEFAULT_REQUIRED_FIELDS
-    return all(getattr(track, f, None) for f in fields)
+    for f in fields:
+        value = track.tags.get(f) or getattr(track, f, None)
+        if not value:
+            return False
+    return True
 
 
 def tag_untagged_files(
@@ -393,6 +397,8 @@ def apply_tags_from_data(
             track.crowd = track.tags["crowd"]  # type: ignore[assignment]
         if "mood_tags" in track.tags:
             track.mood_tags = track.tags["mood_tags"]  # type: ignore[assignment]
+        if "mix_traits" in track.tags:
+            track.mix_traits = track.tags["mix_traits"]  # type: ignore[assignment]
 
         # Handle genre_suggestion (not a tag field, but a special override)
         genre = entry.get("genre_suggestion")

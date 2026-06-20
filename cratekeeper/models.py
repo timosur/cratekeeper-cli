@@ -32,6 +32,7 @@ class Track:
     function: list[str] = field(default_factory=list)  # floorfiller, singalong, bridge, reset, closer, opener
     crowd: list[str] = field(default_factory=list)  # mixed-age, older, younger, family
     mood_tags: list[str] = field(default_factory=list)  # feelgood, emotional, euphoric, nostalgic
+    mix_traits: list[str] = field(default_factory=list)  # loop-friendly, long-intro, long-outro, vocal, instrumental, acapella-section
 
     # --- Generic tags dict (profile-driven, forward-looking storage) ---
     tags: dict[str, str | list[str]] = field(default_factory=dict)
