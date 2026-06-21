@@ -115,12 +115,22 @@ def _apply_tags_complete(plan: Plan) -> bool:
 
 
 def _tag_complete(plan: Plan) -> bool:
-    """No tags_written field exists — use bucket + local_path + bpm as proxy."""
-    with_path = [t for t in plan.tracks if t.local_path and t.bucket]
-    if not with_path:
+    """Check if tracks have been tagged (heuristic: has bpm).
+    
+    For library import: checks approved tracks only.
+    For event pipeline: checks all tracks with local_path.
+    """
+    if isinstance(plan, LibraryImportPlan):
+        # Library import: only approved tracks need tagging
+        tracks_to_check = [t for t in plan.tracks if t.library_approval == "approved" and t.local_path]
+    else:
+        # Event pipeline: all matched tracks need tagging
+        tracks_to_check = [t for t in plan.tracks if t.local_path]
+    
+    if not tracks_to_check:
         return False
     # After tagging, tracks should have bpm written. This is a heuristic.
-    return all(t.bpm is not None for t in with_path)
+    return all(t.bpm is not None for t in tracks_to_check)
 
 
 def _review_library_complete(plan: Plan) -> bool:
@@ -367,16 +377,36 @@ def _run_apply_tags(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
 def _run_tag(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
     from cratekeeper.pipeline.tag_writer import tag_tracks
 
+    # For library import: only tag approved tracks
+    # For event pipeline: tag all tracks with local_path
+    if isinstance(plan, LibraryImportPlan):
+        tracks_to_tag = [t for t in plan.tracks if t.library_approval == "approved" and t.local_path]
+        if not tracks_to_tag:
+            return plan, "No approved tracks to tag"
+        console.print(f"Writing tags to {len(tracks_to_tag)} approved tracks...")
+    else:
+        # Event pipeline - tag all matched tracks
+        tracks_to_tag = [t for t in plan.tracks if t.local_path]
+        if not tracks_to_tag:
+            return plan, "No tracks with local files to tag"
+        console.print(f"Writing tags to {len(tracks_to_tag)} tracks...")
+
     def _progress(i, total, track, ok):
         if i % 20 == 0 or i == total or not ok:
             status = "[green]ok[/green]" if ok else "[red]failed[/red]"
             console.print(f"  [{i}/{total}] {track.display_name()} → {status}")
 
-    success, failed = tag_tracks(plan.tracks, progress_callback=_progress, tag_format=profile.tag_format)
-    return plan, f"Tagged {success}, {failed} failed"
+    success, failed = tag_tracks(tracks_to_tag, progress_callback=_progress, tag_format=profile.tag_format)
+    
+    if isinstance(plan, LibraryImportPlan):
+        return plan, f"Tagged {success} approved tracks, {failed} failed"
+    else:
+        return plan, f"Tagged {success} tracks, {failed} failed"
 
 
 def _run_review_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, str]:
+    import subprocess
+    import signal
     from cratekeeper.builder.review_library import candidate_tracks, is_admission_complete, undecided_candidates
 
     if not sys.stdin.isatty():
@@ -391,49 +421,141 @@ def _run_review_library(plan: Plan, profile: Any, inputs: dict) -> tuple[Plan, s
         return plan, f"All {len(candidates)} candidates already reviewed ({approved} approved)"
 
     console.print(
-        f"[cyan]{len(pending)}[/cyan] tracks to review. "
-        "[bold]a[/bold]=approve  [bold]r[/bold]=reject  [bold]s[/bold]=skip  [bold]q[/bold]=quit"
+        f"[cyan]{len(pending)}[/cyan] tracks to review.\n"
+        "[bold]a[/bold]=approve  [bold]r[/bold]=reject  [bold]s[/bold]=skip  "
+        "[bold]p[/bold]=preview  [bold]e[/bold]=edit  [bold]q[/bold]=quit"
     )
 
+    audio_process = None
+
+    def stop_audio():
+        nonlocal audio_process
+        if audio_process and audio_process.poll() is None:
+            audio_process.terminate()
+            try:
+                audio_process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                audio_process.kill()
+            audio_process = None
+
     for idx, track in enumerate(pending, 1):
+        # Stop any playing audio when moving to next track
+        stop_audio()
+
         info_lines = [f"[bold]{track.display_name()}[/bold]"]
-        info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan]   Year: {track.release_year or '?'}")
+        info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan] ({track.confidence})   Year: {track.release_year or '?'}")
         if track.added_at:
             info_lines.append(f"Added: [cyan]{track.added_at[:10]}[/cyan]")
         if track.bpm or track.key:
             info_lines.append(f"BPM: {track.bpm or '?'}   Key: {track.key or '?'}")
+        if track.energy:
+            info_lines.append(f"Energy: {track.energy}")
+        if track.local_path:
+            info_lines.append(f"Path: [dim]{track.local_path}[/dim]")
         if is_admission_complete(track, required_fields):
-            info_lines.append("[green]Fully tagged[/green]")
+            info_lines.append("[green]✓ Fully tagged[/green]")
         else:
-            info_lines.append(f"[yellow]Needs: {', '.join(required_fields)}[/yellow]")
+            info_lines.append(f"[yellow]⚠ Needs: {', '.join(required_fields)}[/yellow]")
         console.print(Panel("\n".join(info_lines), title=f"[{idx}/{len(pending)}]"))
 
         while True:
             try:
-                raw = input("  a=approve  r=reject  s=skip  q=quit > ").strip().lower()
+                raw = input("  a=approve  r=reject  s=skip  p=preview  e=edit  q=quit > ").strip().lower()
             except EOFError:
+                stop_audio()
                 approved = sum(1 for t in candidates if t.library_approval == "approved")
                 return plan, f"Stdin closed. {approved} approved so far"
             if not raw:
                 continue
             key = raw[0]
             if key == "a":
+                stop_audio()
                 track.library_approval = "approved"
-                console.print("  [green]Approved[/green]")
+                console.print("  [green]✓ Approved[/green]")
                 break
             elif key == "r":
+                stop_audio()
                 track.library_approval = "rejected"
-                console.print("  [red]Rejected[/red]")
+                console.print("  [red]✗ Rejected[/red]")
                 break
             elif key == "s":
-                console.print("  [dim]Skipped[/dim]")
+                stop_audio()
+                console.print("  [dim]→ Skipped[/dim]")
                 break
+            elif key == "p":
+                if track.local_path and Path(track.local_path).exists():
+                    stop_audio()
+                    console.print("  [cyan]▶ Playing preview... (press Ctrl+C to stop)[/cyan]")
+                    try:
+                        # Use afplay on macOS, fallback to ffplay on other systems
+                        import platform
+                        if platform.system() == "Darwin":
+                            audio_process = subprocess.Popen(
+                                ["afplay", track.local_path],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
+                        else:
+                            audio_process = subprocess.Popen(
+                                ["ffplay", "-nodisp", "-autoexit", track.local_path],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
+                    except FileNotFoundError:
+                        console.print("  [yellow]Audio player not found (install ffmpeg)[/yellow]")
+                    except KeyboardInterrupt:
+                        stop_audio()
+                        console.print("  [dim]Stopped[/dim]")
+                else:
+                    console.print("  [yellow]No local file found[/yellow]")
+            elif key == "e":
+                stop_audio()
+                console.print("  [cyan]Edit metadata:[/cyan]")
+                console.print("    [dim]Leave blank to keep current value[/dim]")
+                
+                # Edit name
+                new_name = input(f"    Name [{track.name}]: ").strip()
+                if new_name:
+                    track.name = new_name
+                
+                # Edit artists
+                current_artists = ", ".join(track.artists)
+                new_artists = input(f"    Artists [{current_artists}]: ").strip()
+                if new_artists:
+                    track.artists = [a.strip() for a in new_artists.split(",")]
+                
+                # Edit bucket
+                new_bucket = input(f"    Bucket [{track.bucket}]: ").strip()
+                if new_bucket:
+                    track.bucket = new_bucket
+                
+                # Edit year
+                new_year = input(f"    Year [{track.release_year or ''}]: ").strip()
+                if new_year:
+                    try:
+                        track.release_year = int(new_year)
+                        track.era = track.compute_era()
+                    except ValueError:
+                        console.print("      [yellow]Invalid year, skipped[/yellow]")
+                
+                # Edit energy
+                new_energy = input(f"    Energy [{track.energy or ''}]: ").strip()
+                if new_energy:
+                    track.energy = new_energy
+                
+                console.print("  [green]✓ Metadata updated[/green]")
+                # Re-display the track info
+                info_lines = [f"[bold]{track.display_name()}[/bold]"]
+                info_lines.append(f"Bucket: [cyan]{track.bucket}[/cyan] ({track.confidence})   Year: {track.release_year or '?'}")
+                console.print(Panel("\n".join(info_lines), title=f"Updated [{idx}/{len(pending)}]"))
             elif key == "q":
+                stop_audio()
                 approved = sum(1 for t in candidates if t.library_approval == "approved")
                 return plan, f"Quit early. {approved} approved so far"
             else:
                 console.print("  [yellow]Invalid key[/yellow]")
 
+    stop_audio()
     approved = sum(1 for t in candidates if t.library_approval == "approved")
     return plan, f"Reviewed {len(pending)} tracks. {approved} total approved"
 
@@ -561,10 +683,10 @@ LIBRARY_PIPELINE: list[Step] = [
          needs_docker=True, run=_run_analyze_mood, is_complete=_analyze_mood_complete),
     Step(id="apply-tags", label="Apply LLM-classified tags from JSON", required=True,
          run=_run_apply_tags, is_complete=_apply_tags_complete),
-    Step(id="tag", label="Write tags into audio files", required=True,
-         run=_run_tag, is_complete=_tag_complete),
-    Step(id="review-library", label="Review tracks for master library", required=True,
+    Step(id="review-library", label="Review & edit tracks for master library", required=True,
          run=_run_review_library, is_complete=_review_library_complete),
+    Step(id="tag", label="Write tags to approved audio files", required=True,
+         run=_run_tag, is_complete=_tag_complete),
     Step(id="build-library", label="Build master library", required=True,
          needs_input=["library_target"], run=_run_build_library, is_complete=_build_library_complete),
     Step(id="export-rekordbox", label="Export Rekordbox XML", required=False,

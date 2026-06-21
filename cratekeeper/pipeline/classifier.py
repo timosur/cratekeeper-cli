@@ -9,17 +9,37 @@ from cratekeeper.models import Track
 
 
 def _word_match(tag: str, genre: str) -> bool:
-    """Check if the bucket tag matches the track genre.
+    """Check if the bucket tag matches the track genre (case-insensitive).
 
-    The tag must appear as a whole word/phrase within the genre string.
-    We do NOT match in reverse (a short genre like "dance" should not match
-    a compound tag like "indie dance").
+    Exact match preferred. Partial matches only if tag is longer/more specific.
+    We do NOT want "house" to match "progressive house" - that's too broad.
+    But "progressive house" SHOULD match "progressive house".
     """
-    if tag == genre:
+    tag_lower = tag.lower()
+    genre_lower = genre.lower()
+    
+    # Exact match - always wins
+    if tag_lower == genre_lower:
         return True
-    # tag appears as a whole word in the genre
-    if re.search(rf'\b{re.escape(tag)}\b', genre):
+    
+    # For partial matches: only match if the tag is MORE specific than the genre
+    # e.g., tag="melodic techno" should NOT match genre="techno"
+    # but tag="techno" COULD match genre="techno" (exact, already handled above)
+    # We want to AVOID: tag="house" matching genre="progressive house"
+    # 
+    # Simple rule: if tag has fewer words than genre, it's too generic - don't match
+    tag_words = tag_lower.split()
+    genre_words = genre_lower.split()
+    
+    if len(tag_words) < len(genre_words):
+        # Tag is shorter/more generic - don't match compounds
+        return False
+    
+    # Tag is same length or longer - allow word boundary match
+    # This handles cases like tag="progressive house techno" matching genre="progressive house"
+    if re.search(rf'\b{re.escape(tag_lower)}\b', genre_lower):
         return True
+    
     return False
 
 
@@ -31,23 +51,44 @@ def classify_track(
     """Classify a single track into a genre bucket.
 
     Returns (bucket_name, confidence).
-    Confidence: "high" if genre tags match, "low" if fallback.
-    Buckets are checked in list order (first match wins).
+    Confidence: 
+    - "high" if exactly one bucket matches
+    - "low" if multiple buckets match (ambiguous, needs review) or no match (fallback)
+    
+    Checks all track genres against all bucket tags. If multiple buckets match,
+    uses the first matching bucket but marks confidence as low to flag for review.
     """
     if buckets is None:
         buckets = get_buckets()
 
     genres_lower = [g.lower() for g in track.artist_genres]
 
-    # Match genre tags (list order = specificity order)
+    # Collect all matching buckets
+    matching_buckets: list[str] = []
+    
     for bucket in buckets:
-        for tag in bucket.genre_tags:
-            for genre in genres_lower:
+        bucket_matches = False
+        for genre in genres_lower:
+            for tag in bucket.genre_tags:
                 if _word_match(tag, genre):
-                    return bucket.name, "high"
+                    bucket_matches = True
+                    break
+            if bucket_matches:
+                break
+        
+        if bucket_matches:
+            matching_buckets.append(bucket.name)
 
-    # Fallback
-    return fallback, "low"
+    # Determine confidence based on number of matches
+    if len(matching_buckets) == 0:
+        # No match - use fallback
+        return fallback, "low"
+    elif len(matching_buckets) == 1:
+        # Single clear match - high confidence
+        return matching_buckets[0], "high"
+    else:
+        # Multiple matches - ambiguous, use first but mark low confidence for review
+        return matching_buckets[0], "low"
 
 
 def classify_tracks(
